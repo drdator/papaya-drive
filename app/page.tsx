@@ -1,0 +1,172 @@
+'use client';
+
+import { useEffect, useRef, useState } from 'react';
+import { createGame, type GameControls, type GameStatus } from './game';
+
+const initial: GameStatus = {
+  ready: false,
+  speed: 0,
+  gate: 0,
+  lap: 1,
+  time: 0,
+  best: null,
+  paused: false,
+  error: null,
+  started: false,
+};
+function timeLabel(seconds: number) {
+  return `${Math.floor(seconds / 60)}:${(seconds % 60).toFixed(1).padStart(4, '0')}`;
+}
+
+export default function Home() {
+  const viewport = useRef<HTMLDivElement>(null);
+  const game = useRef<GameControls | null>(null);
+  const [status, setStatus] = useState(initial);
+  useEffect(() => {
+    if (!viewport.current) return;
+    game.current = createGame(viewport.current, setStatus);
+    return () => {
+      game.current?.dispose();
+      game.current = null;
+    };
+  }, []);
+  return (
+    <main className="game" aria-label="Papaya Drive car game">
+      <div ref={viewport} className="viewport" />
+      <div className="hud">
+        <div className="topbar">
+          <div>
+            <div className="eyebrow">A little off the beaten path</div>
+            <div className="brand">
+              PAPAYA<span> DRIVE.</span>
+            </div>
+            <p className="subtitle">Your car. A quiet forest. Go.</p>
+          </div>
+          <div className="route">
+            <div className="eyebrow">Forest loop · Lap {status.lap}</div>
+            <div className="route-title">
+              <span>Checkpoints</span>
+              <strong>{status.gate} / 8</strong>
+            </div>
+            <div className="dots" aria-hidden="true">
+              {Array.from({ length: 8 }, (_, i) => (
+                <span
+                  key={i}
+                  className={
+                    i < status.gate
+                      ? 'done'
+                      : i === status.gate
+                        ? 'current'
+                        : ''
+                  }
+                />
+              ))}
+            </div>
+            <div className="timing">
+              <span>{timeLabel(status.time)}</span>
+              <span>
+                Best {status.best === null ? '—' : timeLabel(status.best)}
+              </span>
+            </div>
+          </div>
+        </div>
+        {!status.ready && (
+          <output className="message">
+            <h1>
+              {status.error
+                ? 'Couldn’t start the drive'
+                : 'Packing the picnic…'}
+            </h1>
+            <p>{status.error ?? 'Loading your car and the forest.'}</p>
+            {status.error && (
+              <button onClick={() => location.reload()}>Try again</button>
+            )}
+          </output>
+        )}
+        {status.ready && status.paused && (
+          <div className="message">
+            <h1>Taking the scenic pause.</h1>
+            <p>The forest can wait.</p>
+            <button onClick={() => game.current?.togglePause()}>
+              Back to driving
+            </button>
+          </div>
+        )}
+        {status.ready && !status.started && !status.paused && (
+          <div className="hint">
+            Drive through the golden arches to complete the loop.
+          </div>
+        )}
+        <div className="bottom-bar">
+          <div>
+            <div className="speed">
+              <strong>
+                {Math.round(Math.abs(status.speed) * 3.6)
+                  .toString()
+                  .padStart(2, '0')}
+              </strong>
+              <span>KM/H</span>
+            </div>
+            <div className="gear">
+              {status.speed < -0.2 ? 'R · REVERSE' : 'D · LET’S WANDER'}
+            </div>
+          </div>
+          <div>
+            <div className="controls">
+              <div>
+                <kbd>W A S D</kbd> / <kbd>↑ ← ↓ →</kbd> Drive
+              </div>
+              <div>
+                <kbd>Space</kbd> Brake
+              </div>
+            </div>
+            <div className="actions">
+              <button onClick={() => game.current?.reset()}>↺ Reset car</button>
+              <button onClick={() => game.current?.togglePause()}>
+                {status.paused ? '▶ Resume' : 'Ⅱ Pause'}
+              </button>
+            </div>
+          </div>
+        </div>
+        <div className="touch-controls">
+          {[
+            ['ArrowLeft', 'ArrowRight'],
+            ['ArrowDown', 'ArrowUp'],
+          ].map((keys, i) => (
+            <div key={i}>
+              {keys.map((key) => (
+                <button
+                  key={key}
+                  aria-label={
+                    {
+                      ArrowLeft: 'Steer left',
+                      ArrowRight: 'Steer right',
+                      ArrowDown: 'Brake or reverse',
+                      ArrowUp: 'Accelerate',
+                    }[key]
+                  }
+                  onPointerDown={(e) => {
+                    e.currentTarget.setPointerCapture(e.pointerId);
+                    game.current?.setKey(key, true);
+                  }}
+                  onPointerUp={() => game.current?.setKey(key, false)}
+                  onPointerCancel={() => game.current?.setKey(key, false)}
+                  onLostPointerCapture={() => game.current?.setKey(key, false)}
+                >
+                  {
+                    {
+                      ArrowLeft: '←',
+                      ArrowRight: '→',
+                      ArrowDown: '↓',
+                      ArrowUp: '↑',
+                    }[key]
+                  }
+                </button>
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+    </main>
+  );
+}
