@@ -2,6 +2,8 @@
 
 A small Three.js driving game using the Blender car, three rocks, and three trees from the adjacent asset folders.
 
+![Papaya Drive: the orange car skidding through the forest track, with checkpoints and a damage meter.](docs/gameplay.png)
+
 Run `npm install` then `npm run dev`. Build with `npm run build`. Run the focused terrain and gravity checks with `npm test` (Node 22.13+).
 
 - W / Up: accelerate
