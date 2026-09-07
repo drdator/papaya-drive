@@ -58,14 +58,8 @@ button:focus-visible {
   align-items: flex-start;
   gap: 20px;
 }
-.brand {
-  font-size: 28px;
-  letter-spacing: -1.5px;
-  font-weight: 900;
-  line-height: 1;
-}
-.brand span {
-  color: #dc6034;
+.topbar {
+  justify-content: flex-end;
 }
 .eyebrow {
   font-size: 12px;
@@ -73,10 +67,6 @@ button:focus-visible {
   letter-spacing: 2px;
   text-transform: uppercase;
   margin-bottom: 10px;
-}
-.subtitle {
-  font-size: 14px;
-  margin-top: 10px;
 }
 .route {
   background: #fffcf3ed;
@@ -143,33 +133,58 @@ button:focus-visible {
   letter-spacing: 1px;
 }
 .gear {
+  min-height: 1.5em;
   margin-top: 9px;
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 1.5px;
 }
-.controls {
-  background: #fffcf3ed;
-  border: 1px solid #fff8;
-  border-radius: 14px;
-  padding: 13px 16px;
-  display: flex;
-  align-items: center;
-  gap: 18px;
-  font-size: 13px;
+.damage {
+  width: 140px;
+  margin-top: 8px;
 }
-.controls div {
+.damage-label {
   display: flex;
-  gap: 6px;
-  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-variant-numeric: tabular-nums;
 }
-.controls kbd {
-  font-family: inherit;
-  font-size: 12px;
-  border: 1px solid #cbd4c6;
+.damage meter {
+  display: block;
+  width: 100%;
+  height: 8px;
+  appearance: none;
+  border: 0;
   border-radius: 4px;
-  padding: 4px 5px;
-  box-shadow: 0 2px #d4dbce;
+  background: #fffcf3d9;
+  overflow: hidden;
+}
+.damage meter::-webkit-meter-bar {
+  background: #fffcf3d9;
+  border: 0;
+  border-radius: 4px;
+}
+.damage meter::-webkit-meter-optimum-value {
+  background: #2f6650;
+}
+.damage meter::-webkit-meter-suboptimum-value {
+  background: #e97743;
+}
+.damage meter::-webkit-meter-even-less-good-value {
+  background: #c23f32;
+}
+.damage meter::-moz-meter-bar {
+  background: #2f6650;
+}
+.damage meter:-moz-meter-sub-optimum::-moz-meter-bar {
+  background: #e97743;
+}
+.damage meter:-moz-meter-sub-sub-optimum::-moz-meter-bar {
+  background: #c23f32;
 }
 .actions {
   pointer-events: auto;
@@ -264,13 +279,6 @@ button:focus-visible {
   .hud {
     padding: 20px;
   }
-  .brand {
-    font-size: 24px;
-  }
-  .subtitle {
-    max-width: 135px;
-    line-height: 1.5;
-  }
   .route {
     padding: 14px;
     min-width: 170px;
@@ -282,20 +290,20 @@ button:focus-visible {
   .route-title {
     gap: 10px;
   }
-  .controls {
-    display: none;
-  }
   .speed strong {
     font-size: 50px;
   }
   .hint {
-    bottom: 125px;
+    bottom: 230px;
     max-width: 90%;
     white-space: normal;
     text-align: center;
   }
   .bottom-bar {
     padding-bottom: 80px;
+  }
+  .actions {
+    flex-direction: column;
   }
   .touch-controls {
     display: flex;
@@ -313,9 +321,6 @@ button:focus-visible {
 @media (pointer: coarse) {
   .touch-controls {
     display: flex;
-  }
-  .controls {
-    display: none;
   }
   .bottom-bar {
     padding-bottom: 82px;

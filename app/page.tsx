@@ -13,6 +13,9 @@ const initial: GameStatus = {
   paused: false,
   error: null,
   started: false,
+  airborne: false,
+  skidding: false,
+  damage: 0,
 };
 function timeLabel(seconds: number) {
   return `${Math.floor(seconds / 60)}:${(seconds % 60).toFixed(1).padStart(4, '0')}`;
@@ -22,6 +25,7 @@ export default function Home() {
   const viewport = useRef<HTMLDivElement>(null);
   const game = useRef<GameControls | null>(null);
   const [status, setStatus] = useState(initial);
+  const wrecked = status.damage >= 100;
   useEffect(() => {
     if (!viewport.current) return;
     game.current = createGame(viewport.current, setStatus);
@@ -35,15 +39,8 @@ export default function Home() {
       <div ref={viewport} className="viewport" />
       <div className="hud">
         <div className="topbar">
-          <div>
-            <div className="eyebrow">A little off the beaten path</div>
-            <div className="brand">
-              PAPAYA<span> DRIVE.</span>
-            </div>
-            <p className="subtitle">Your car. A quiet forest. Go.</p>
-          </div>
           <div className="route">
-            <div className="eyebrow">Forest loop · Lap {status.lap}</div>
+            <div className="eyebrow">Ridge trail · Lap {status.lap}</div>
             <div className="route-title">
               <span>Checkpoints</span>
               <strong>{status.gate} / 8</strong>
@@ -83,7 +80,16 @@ export default function Home() {
             )}
           </output>
         )}
-        {status.ready && status.paused && (
+        {status.ready && wrecked && (
+          <output className="message">
+            <h1>Car wrecked.</h1>
+            <p>Too much damage to keep driving.</p>
+            <button onClick={() => game.current?.reset()}>
+              Repair & restart
+            </button>
+          </output>
+        )}
+        {status.ready && status.paused && !wrecked && (
           <div className="message">
             <h1>Taking the scenic pause.</h1>
             <p>The forest can wait.</p>
@@ -94,7 +100,7 @@ export default function Home() {
         )}
         {status.ready && !status.started && !status.paused && (
           <div className="hint">
-            Drive through the golden arches to complete the loop.
+            Follow the golden arches. Carry speed over the crests.
           </div>
         )}
         <div className="bottom-bar">
@@ -108,18 +114,33 @@ export default function Home() {
               <span>KM/H</span>
             </div>
             <div className="gear">
-              {status.speed < -0.2 ? 'R · REVERSE' : 'D · LET’S WANDER'}
+              {wrecked
+                ? 'WRECKED'
+                : status.airborne
+                  ? '↗ AIRBORNE'
+                  : status.skidding
+                    ? '↝ SKIDDING'
+                    : status.speed < -0.2
+                      ? 'R · REVERSE'
+                      : ''}
+            </div>
+            <div className="damage">
+              <div className="damage-label">
+                <label htmlFor="car-damage">Damage</label>
+                <span>{Math.floor(status.damage)}%</span>
+              </div>
+              <meter
+                id="car-damage"
+                min={0}
+                max={100}
+                low={40}
+                high={75}
+                optimum={0}
+                value={status.damage}
+              />
             </div>
           </div>
           <div>
-            <div className="controls">
-              <div>
-                <kbd>W A S D</kbd> / <kbd>↑ ← ↓ →</kbd> Drive
-              </div>
-              <div>
-                <kbd>Space</kbd> Brake
-              </div>
-            </div>
             <div className="actions">
               <button onClick={() => game.current?.reset()}>↺ Reset car</button>
               <button onClick={() => game.current?.togglePause()}>
