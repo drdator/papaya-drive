@@ -8,12 +8,17 @@ export const wheelMounts = [
   { name: 'Wheel_RR', x: 0.84, z: -1.12 },
   { name: 'Wheel_RL', x: -0.84, z: -1.12 },
 ];
-export function groundUnderCar(x: number, z: number, heading: number) {
+export function groundUnderCar(
+  x: number,
+  z: number,
+  heading: number,
+  heightAt = terrainHeight,
+) {
   const fx = Math.sin(heading),
     fz = Math.cos(heading);
   const heights = wheelMounts.map(
     (wheel) =>
-      terrainHeight(
+      heightAt(
         x + fx * wheel.z + fz * wheel.x,
         z + fz * wheel.z - fx * wheel.x,
       ) + 0.025,

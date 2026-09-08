@@ -39,6 +39,7 @@ export type VehicleSoundInput = {
   running: boolean;
   // Keep the mix active for crash tails after the engine is wrecked.
   active?: boolean;
+  musicActive?: boolean;
 };
 
 export function createEngineSoundState() {
@@ -79,7 +80,7 @@ export function advanceEngineSound(
   engine.load += (throttle - engine.load) * (1 - Math.exp(-dt * 12));
 }
 
-export function createVehicleAudio() {
+export function createVehicleAudio(musicTrack = 'cozy-drive.mp3') {
   const engine = createEngineSoundState();
   let context: AudioContext | undefined;
   let graph: ReturnType<typeof createGraph> | undefined;
@@ -134,9 +135,12 @@ export function createVehicleAudio() {
         ...engineRecordings.motor.map((rpm) => `engine/eng-${rpm}`),
         ...engineRecordings.exhaust.map((rpm) => `engine/exh-${rpm}`),
       ].map(async (name) => {
-        const response = await fetch(`/audio/${name}.wav`, {
-          signal: abort.signal,
-        });
+        const response = await fetch(
+          `${import.meta.env.BASE_URL}audio/${name}.wav`,
+          {
+            signal: abort.signal,
+          },
+        );
         if (!response.ok)
           throw new Error(`Could not load ${name} audio (${response.status})`);
         return ctx.decodeAudioData(await response.arrayBuffer());
@@ -168,7 +172,7 @@ export function createVehicleAudio() {
       context ??= new AudioContext();
       if (!music) {
         // Stream the song instead of decoding the entire track into memory.
-        music = new Audio('/audio/cozy-drive.mp3');
+        music = new Audio(`${import.meta.env.BASE_URL}audio/${musicTrack}`);
         music.loop = true;
         music.volume = 0.32;
       }
@@ -306,7 +310,10 @@ export function createVehicleAudio() {
     },
     update(input: VehicleSoundInput, dt: number) {
       advanceEngineSound(engine, input, dt);
-      musicActive = (input.active ?? input.running) && !muted && !disposed;
+      musicActive =
+        (input.musicActive ?? input.active ?? input.running) &&
+        !muted &&
+        !disposed;
       playMusic(musicActive);
       if (!graph || !context || context.state !== 'running') return;
       const now = context.currentTime;

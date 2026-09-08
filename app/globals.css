@@ -726,3 +726,130 @@ a:focus-visible {
     transition: none !important;
   }
 }
+
+.map-button {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  align-self: flex-start;
+  margin-right: auto;
+  padding: 10px 16px;
+  border: 3px solid #fffbe9;
+  border-radius: 17px;
+  background: var(--cream);
+  box-shadow: 0 4px 0 var(--cream-edge);
+  pointer-events: auto;
+  font-size: 16px;
+}
+.map-button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+.map-menu {
+  width: min(460px, calc(100% - 32px));
+  padding: 28px;
+  border: 5px solid #fffbe9;
+  border-radius: 30px;
+  background: var(--cream);
+  color: var(--ink);
+  box-shadow:
+    0 7px 0 var(--cream-edge),
+    0 16px 40px #203b3b30;
+}
+.map-menu::backdrop {
+  background: #183f4290;
+  backdrop-filter: blur(4px);
+}
+.map-menu h1 {
+  margin: 0 0 6px;
+  font-size: 28px;
+  font-weight: 600;
+}
+.map-menu p {
+  margin: 0;
+  font-size: 16px;
+}
+.map-options {
+  display: grid;
+  gap: 12px;
+  margin: 24px 0;
+}
+.map-options button {
+  display: grid;
+  gap: 4px;
+  padding: 17px 18px;
+  text-align: left;
+  border: 3px solid #d9cba4;
+  border-radius: 18px;
+  background: #fffbe9;
+}
+.map-options button[aria-pressed='true'] {
+  border-color: var(--ink);
+  background: #e3ebcc;
+}
+.map-options strong {
+  font-size: 21px;
+  font-weight: 600;
+}
+.map-options span {
+  font-size: 14px;
+}
+.map-close {
+  padding: 10px 18px;
+  min-height: 46px;
+  border: 3px solid #f7bc7b;
+  border-radius: 16px;
+  background: var(--orange);
+  font-size: 16px;
+}
+@media (max-width: 700px) {
+  .map-button {
+    padding: 8px 10px;
+    font-size: 14px;
+    gap: 5px;
+  }
+  .map-button .icon {
+    width: 18px;
+    height: 18px;
+  }
+}
+
+.view-controls {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-right: auto;
+}
+.view-controls .map-button {
+  margin-right: 0;
+}
+#fly[aria-pressed='true'] {
+  background: #d4e6c2;
+  border-color: #9fbe87;
+}
+.fly-height {
+  display: none;
+  pointer-events: auto;
+}
+.fly-height button {
+  font-size: 28px;
+}
+.game:has(#fly[aria-pressed='true']) .actions {
+  margin-left: auto;
+}
+@media (max-width: 700px) {
+  .view-controls {
+    flex-direction: column;
+    gap: 8px;
+  }
+}
+@media (pointer: coarse), (max-width: 700px) {
+  .fly-height {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    position: absolute;
+    right: 18px;
+    top: 42%;
+  }
+}

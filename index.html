@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="Take a low-poly hatchback for a spin. Follow the forest loop, find eight golden checkpoints, and enjoy the drive."
+      content="Take a low-poly hatchback through woodland hills or a tropical island. Find eight golden checkpoints and enjoy the drive."
     />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link
@@ -16,7 +16,7 @@
       crossorigin
     />
     <link rel="stylesheet" href="/app/globals.css" />
-    <title>Papaya Drive — a little forest driving game</title>
+    <title>Papaya Drive — island driving</title>
   </head>
   <body>
     <svg
@@ -25,6 +25,12 @@
       aria-hidden="true"
     >
       <defs>
+        <symbol id="icon-map" viewBox="0 0 24 24">
+          <path d="m3 6 6-3 6 3 6-3v15l-6 3-6-3-6 3Zm6-3v15m6-12v15" />
+        </symbol>
+        <symbol id="icon-fly" viewBox="0 0 24 24">
+          <path d="m3 10 18-7-7 18-3-8Zm8 3L21 3" />
+        </symbol>
         <symbol id="icon-sound" viewBox="0 0 24 24">
           <path d="M11 5 6 9H3v6h3l5 4Z" />
           <path
@@ -56,9 +62,34 @@
       <div class="viewport"></div>
       <div class="hud">
         <div class="topbar">
+          <div class="view-controls">
+            <button
+              id="maps"
+              class="map-button"
+              aria-haspopup="dialog"
+              aria-controls="map-menu"
+            >
+              <svg class="icon" aria-hidden="true">
+                <use href="#icon-map" />
+              </svg>
+              Maps
+            </button>
+            <button
+              id="fly"
+              class="map-button"
+              aria-label="Fly around map"
+              aria-pressed="false"
+              disabled
+            >
+              <svg class="icon" aria-hidden="true">
+                <use href="#icon-fly" />
+              </svg>
+              <span id="fly-label">Fly</span>
+            </button>
+          </div>
           <div class="route">
             <div class="trail-name">
-              Ridge trail
+              <span id="trail-name">Ridge trail</span>
               <span class="lap-badge">Lap <span id="lap">1</span></span>
             </div>
             <div class="trail-progress" aria-label="Checkpoint progress">
@@ -95,14 +126,14 @@
             ><svg class="icon"><use href="#icon-pause" /></svg
           ></span>
           <h1>A little breather.</h1>
-          <p>The forest can wait.</p>
+          <p>The island can wait.</p>
           <button id="resume">
             <svg class="icon" aria-hidden="true"><use href="#icon-play" /></svg>
             Keep cruising
           </button>
           <a
             class="audio-credits"
-            href="/audio/credits.html"
+            href="%BASE_URL%audio/credits.html"
             target="_blank"
             rel="noreferrer"
             >Audio credits</a
@@ -208,8 +239,38 @@
             <button data-key="ArrowUp" aria-label="Accelerate">↑</button>
           </div>
         </div>
+        <div id="fly-height" class="fly-height" hidden>
+          <button class="game-button" data-key="e" aria-label="Fly up">
+            +
+          </button>
+          <button class="game-button" data-key="q" aria-label="Fly down">
+            −
+          </button>
+        </div>
       </div>
     </main>
+    <dialog
+      id="map-menu"
+      class="map-menu"
+      aria-labelledby="map-title"
+      aria-describedby="map-description"
+    >
+      <h1 id="map-title">Choose a map</h1>
+      <p id="map-description">Changing map starts a fresh drive.</p>
+      <div class="map-options">
+        <button data-map="ridge" aria-pressed="true">
+          <strong>Ridge trail</strong>
+          <span>Woodland hills &amp; winding climbs</span>
+        </button>
+        <button data-map="tropical" aria-pressed="false">
+          <strong>Palm cove</strong>
+          <span>Beach loop &amp; a towering rock arch</span>
+        </button>
+      </div>
+      <form method="dialog">
+        <button class="map-close">Back to driving</button>
+      </form>
+    </dialog>
     <script type="module" src="/app/main.ts"></script>
   </body>
 </html>

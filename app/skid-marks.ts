@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { terrainHeight } from './terrain.ts';
 
-export function createSkidMarks() {
+export function createSkidMarks(heightAt = terrainHeight) {
   const capacity = 2048;
   const positions = new THREE.Float32BufferAttribute(
     new Float32Array(capacity * 18),
@@ -66,7 +66,7 @@ export function createSkidMarks() {
             positions.setXYZ(
               cursor * 6 + vertex,
               cx,
-              terrainHeight(cx, cz) + 0.045,
+              heightAt(cx, cz) + 0.045,
               cz,
             );
           });

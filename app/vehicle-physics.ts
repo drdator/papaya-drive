@@ -1,5 +1,6 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
+import { terrainHeight } from './terrain.ts';
 import {
   gravity,
   groundUnderCar,
@@ -19,7 +20,10 @@ export function initializeVehiclePhysics() {
   return (initialization ??= RAPIER.init());
 }
 
-export function createVehiclePhysics(terrain: THREE.BufferGeometry) {
+export function createVehiclePhysics(
+  terrain: THREE.BufferGeometry,
+  heightAt = terrainHeight,
+) {
   const mass = 1000;
   const restLength = 0.36;
   const mountHeight = tireRadius + restLength - gravity / (55 * 4);
@@ -93,6 +97,11 @@ export function createVehiclePhysics(terrain: THREE.BufferGeometry) {
   const contactNormal = new THREE.Vector3();
   const pointVelocity = new THREE.Vector3();
   const previousVelocity = new THREE.Vector3();
+  const previousAngularVelocity = new THREE.Vector3();
+  const previousCenter = new THREE.Vector3();
+  const patchPoint = new THREE.Vector3();
+  const localPoint = new THREE.Vector3();
+  const contactRotation = new THREE.Quaternion();
   const obstacleRadii = new Map<number, number>();
   const impact = {
     speed: 0,
@@ -147,6 +156,23 @@ export function createVehiclePhysics(terrain: THREE.BufferGeometry) {
   return {
     state,
     body,
+    addSolid(mesh: THREE.Mesh) {
+      mesh.updateWorldMatrix(true, false);
+      const geometry = mesh.geometry.clone().applyMatrix4(mesh.matrixWorld);
+      const positions = geometry.getAttribute('position');
+      const indices =
+        geometry.index?.array ??
+        Array.from({ length: positions.count }, (_, i) => i);
+      world.createCollider(
+        RAPIER.ColliderDesc.trimesh(
+          Float32Array.from(positions.array),
+          Uint32Array.from(indices),
+        )
+          .setFriction(0.8)
+          .setRestitution(0.08),
+      );
+      geometry.dispose();
+    },
     addObstacle(obstacle: {
       x: number;
       z: number;
@@ -170,7 +196,7 @@ export function createVehiclePhysics(terrain: THREE.BufferGeometry) {
       obstacleRadii.set(collider.handle, obstacle.radius);
     },
     reset(x: number, z: number, heading: number) {
-      const surface = groundUnderCar(x, z, heading);
+      const surface = groundUnderCar(x, z, heading, heightAt);
       rotation.setFromEuler(
         euler.set(surface.pitch, heading, surface.bank, 'YXZ'),
       );
@@ -204,6 +230,25 @@ export function createVehiclePhysics(terrain: THREE.BufferGeometry) {
       world.step();
       readState();
     },
+    teleport(target: THREE.Vector3, orientation: THREE.Quaternion) {
+      body.setTranslation(target, true);
+      body.setRotation(orientation, true);
+      body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+      body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+      body.resetForces(true);
+      body.resetTorques(true);
+      state.steering = 0;
+      state.grounded = false;
+      impact.speed = 0;
+      wheels.forEach((wheel) => {
+        wheel.contact = false;
+        wheel.airTime = 0.1;
+        wheel.contactTime = 0;
+        wheel.skid = wheel.load = 0;
+        wheel.offset = -0.12;
+      });
+      readState();
+    },
     setWheelMount(i: number, z: number, attached: boolean) {
       wheels[i].attached = attached;
       vehicle.setWheelChassisConnectionPointCs(i, {
@@ -215,6 +260,8 @@ export function createVehiclePhysics(terrain: THREE.BufferGeometry) {
     step(input: DriveInput, dt: number, waterDepth = 0) {
       readState();
       previousVelocity.copy(velocity);
+      previousAngularVelocity.copy(body.angvel());
+      previousCenter.copy(body.worldCom());
       const speed = Math.abs(state.speed);
       const reversing = input.reverse && !input.gas && state.speed < 0.1;
       const braking =
@@ -352,20 +399,46 @@ export function createVehiclePhysics(terrain: THREE.BufferGeometry) {
       for (const collider of chassis)
         world.contactPairsWith(collider, (other) => {
           world.contactPair(collider, other, (manifold, flipped) => {
-            if (manifold.numSolverContacts() === 0) return;
+            patchPoint.set(0, 0, 0);
+            let contacts = manifold.numSolverContacts();
+            if (contacts) {
+              for (let i = 0; i < contacts; i++)
+                patchPoint.add(manifold.solverContactPoint(i)!);
+            } else {
+              // CCD terrain hits can retain geometric contacts after the solver
+              // contacts have been cleared. Only accept points at the collision skin.
+              contactRotation.copy(other.rotation());
+              for (let i = 0; i < manifold.numContacts(); i++) {
+                if (manifold.contactDist(i) > 0.015) continue;
+                const point = flipped
+                  ? manifold.localContactPoint1(i)
+                  : manifold.localContactPoint2(i);
+                if (!point) continue;
+                patchPoint.add(
+                  localPoint
+                    .copy(point)
+                    .applyQuaternion(contactRotation)
+                    .add(other.translation()),
+                );
+                contacts++;
+              }
+            }
+            if (!contacts) return;
+            patchPoint.divideScalar(contacts);
             state.grounded = true;
             const normal = contactNormal
               .copy(manifold.normal())
               .multiplyScalar(flipped ? -1 : 1);
-            const closing = previousVelocity.dot(normal);
+            // A rotating nose or roof can hit hard even with little body translation.
+            pointVelocity
+              .subVectors(patchPoint, previousCenter)
+              .crossVectors(previousAngularVelocity, pointVelocity)
+              .add(previousVelocity);
+            const closing = pointVelocity.dot(normal);
             if (closing > impact.speed) {
               impact.speed = closing;
               impact.radius = obstacleRadii.get(other.handle) ?? 1.1;
-              // Use the center of the contact patch, not an arbitrary corner.
-              impact.point.set(0, 0, 0);
-              for (let i = 0; i < manifold.numSolverContacts(); i++)
-                impact.point.add(manifold.solverContactPoint(i)!);
-              impact.point.divideScalar(manifold.numSolverContacts());
+              impact.point.copy(patchPoint);
               impact.normal.copy(normal).negate();
             }
           });

@@ -380,3 +380,76 @@ await test('driving down the real beach submerges and floods the engine', () => 
     car.dispose();
   }
 });
+
+await test('a flight drop clears old momentum, falls from the chosen pose, and can drive after landing', () => {
+  const car = flatCar();
+  try {
+    for (let i = 0; i < 120; i++) car.step(gas, dt);
+    car.body.setAngvel({ x: 2, y: 1, z: 3 }, true);
+    const target = new THREE.Vector3(30, 16, -20);
+    const orientation = new THREE.Quaternion().setFromAxisAngle(
+      new THREE.Vector3(0, 1, 0),
+      Math.PI / 2,
+    );
+    car.teleport(target, orientation);
+    assert.deepEqual(car.state.position.toArray(), target.toArray());
+    assert.equal(car.state.velocity.length(), 0);
+    assert.equal(new THREE.Vector3().copy(car.body.angvel()).length(), 0);
+    assert.ok(
+      !car.state.grounded && car.state.wheels.every((wheel) => !wheel.contact),
+    );
+    for (let i = 0; i < 60; i++) car.step(idle, dt);
+    assert.ok(
+      car.state.position.y < 15 && car.state.position.y > 12,
+      'The car falls through the air instead of snapping to the terrain',
+    );
+    assert.ok(Math.abs(car.state.position.x - 30) < 0.1);
+    for (let i = 0; i < 420; i++) car.step(idle, dt);
+    assert.ok(car.state.grounded && Math.abs(car.state.position.y) < 0.3);
+    for (let i = 0; i < 120; i++) car.step(gas, dt);
+    assert.ok(
+      car.state.position.x > 32,
+      'Driving resumes in the selected heading',
+    );
+  } finally {
+    car.dispose();
+  }
+});
+
+await test('hard nose-first ground strikes damage the body while wheel-first landings use suspension', () => {
+  for (const scenario of [
+    { pitch: 1.2, height: 6, fall: -18, minimum: 60, maximum: 99 },
+    { pitch: 1.5, height: 6, fall: -26, minimum: 100, maximum: 100 },
+    { pitch: 0, height: 1.2, fall: 0, minimum: 0, maximum: 0 },
+  ]) {
+    const car = flatCar(scenario.height, scenario.pitch);
+    const damage = createVehicleDamage();
+    let firstStrike = false;
+    try {
+      car.body.setLinvel({ x: 0, y: scenario.fall, z: 24 }, true);
+      for (let i = 0; i < 360; i++) {
+        const state = car.step(idle, dt);
+        if (!firstStrike && state.impact.speed > 10 && scenario.pitch > 1) {
+          const local = state.impact.point
+            .clone()
+            .sub(state.position)
+            .applyQuaternion(state.rotation.clone().invert());
+          assert.ok(local.z > 1.3, 'The impact is located at the nose');
+          assert.ok(
+            state.wheels.every((wheel) => !wheel.contact),
+            'The body strikes before the tires touch',
+          );
+          firstStrike = true;
+        }
+        advanceVehicleDamage(damage, state.impact.speed, dt);
+      }
+      assert.ok(
+        damage.amount >= scenario.minimum && damage.amount <= scenario.maximum,
+        `Expected ${scenario.minimum}–${scenario.maximum}% damage, got ${damage.amount}`,
+      );
+      if (scenario.pitch > 1) assert.ok(firstStrike);
+    } finally {
+      car.dispose();
+    }
+  }
+});

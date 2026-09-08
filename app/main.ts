@@ -1,4 +1,9 @@
 import { createGame, type GameStatus } from './game';
+import { maps, type MapId } from './maps';
+
+let activeMap: MapId = 'ridge';
+let latestStatus: GameStatus | undefined;
+const touchScreen = matchMedia('(pointer: coarse), (max-width: 700px)');
 
 const ui = {
   viewport: document.querySelector<HTMLDivElement>('.viewport')!,
@@ -27,6 +32,13 @@ const ui = {
   reset: document.getElementById('reset')!,
   pause: document.getElementById('pause')!,
   pauseIcon: document.querySelector<SVGUseElement>('#pause-icon')!,
+  maps: document.querySelector<HTMLButtonElement>('#maps')!,
+  mapMenu: document.querySelector<HTMLDialogElement>('#map-menu')!,
+  trailName: document.getElementById('trail-name')!,
+  fly: document.querySelector<HTMLButtonElement>('#fly')!,
+  flyLabel: document.getElementById('fly-label')!,
+  flyHeight: document.getElementById('fly-height')!,
+  dashboard: document.querySelector<HTMLElement>('.dashboard')!,
 };
 
 function timeLabel(seconds: number) {
@@ -38,6 +50,27 @@ function setText(element: HTMLElement, text: string) {
 }
 
 function updateStatus(status: GameStatus) {
+  latestStatus = status;
+  const map = maps[activeMap];
+  setText(ui.trailName, map.name);
+  setText(
+    ui.hint,
+    status.flying
+      ? touchScreen.matches
+        ? 'Arrows move; + / − change height. Drive drops the car.'
+        : 'WASD move · Q/E height · Drag to look · Drive drops car'
+      : map.hint,
+  );
+  ui.fly.disabled = !status.ready;
+  ui.fly.setAttribute('aria-pressed', String(status.flying));
+  ui.fly.setAttribute(
+    'aria-label',
+    status.flying ? 'Drop car and drive' : 'Fly around map',
+  );
+  setText(ui.flyLabel, status.flying ? 'Drive' : 'Fly');
+  ui.flyHeight.hidden = !status.flying;
+  ui.dashboard.hidden = status.flying;
+  ui.maps.disabled = !status.ready && !status.error;
   const wrecked = status.damage >= 100 || status.flooded;
   setText(ui.lap, String(status.lap));
   setText(ui.checkpoints, `${status.gate} / 8`);
@@ -55,12 +88,9 @@ function updateStatus(status: GameStatus) {
     ui.loadingTitle,
     status.error ? 'Couldn’t start the drive' : 'Packing the picnic…',
   );
-  setText(
-    ui.loadingDescription,
-    status.error ?? 'Loading your car and the forest.',
-  );
+  setText(ui.loadingDescription, status.error ?? map.loading);
   ui.retry.hidden = !status.error;
-  ui.wreck.hidden = !status.ready || !wrecked;
+  ui.wreck.hidden = !status.ready || !wrecked || status.flying;
   setText(ui.wreckTitle, status.flooded ? 'Engine flooded.' : 'Car wrecked.');
   setText(
     ui.wreckDescription,
@@ -69,8 +99,21 @@ function updateStatus(status: GameStatus) {
       : 'Too much damage to keep driving.',
   );
   setText(ui.repair, status.flooded ? 'Restart on shore' : 'Repair & restart');
-  ui.paused.hidden = !status.ready || !status.paused || wrecked;
-  ui.hint.hidden = !status.ready || status.started || status.paused || wrecked;
+  ui.paused.hidden =
+    !status.ready || !status.paused || (wrecked && !status.flying);
+  ui.hint.hidden =
+    !status.ready ||
+    status.paused ||
+    (!status.flying && (status.started || wrecked));
+  for (const [key, driving, flying] of [
+    ['ArrowLeft', 'Steer left', 'Fly left'],
+    ['ArrowRight', 'Steer right', 'Fly right'],
+    ['ArrowUp', 'Accelerate', 'Fly forward'],
+    ['ArrowDown', 'Brake or reverse', 'Fly backward'],
+  ])
+    document
+      .querySelector(`[data-key="${key}"]`)
+      ?.setAttribute('aria-label', status.flying ? flying : driving);
   setText(
     ui.speed,
     Math.round(Math.abs(status.speed) * 3.6)
@@ -111,7 +154,7 @@ function updateStatus(status: GameStatus) {
   );
 }
 
-const game = createGame(ui.viewport, updateStatus);
+let game = createGame(ui.viewport, updateStatus, activeMap);
 const events = new AbortController();
 const options = { signal: events.signal };
 ui.retry.addEventListener('click', () => location.reload(), options);
@@ -120,6 +163,61 @@ ui.reset.addEventListener('click', () => game.reset(), options);
 ui.resume.addEventListener('click', () => game.togglePause(), options);
 ui.pause.addEventListener('click', () => game.togglePause(), options);
 ui.sound.addEventListener('click', () => game.toggleMute(), options);
+ui.fly.addEventListener(
+  'click',
+  () => {
+    game.toggleFly();
+    ui.viewport.querySelector('canvas')?.focus();
+  },
+  options,
+);
+let resumeAfterMenu = false;
+ui.maps.addEventListener(
+  'click',
+  () => {
+    resumeAfterMenu = latestStatus?.ready === true && !latestStatus.paused;
+    if (resumeAfterMenu) game.togglePause();
+    ui.mapMenu.showModal();
+  },
+  options,
+);
+ui.mapMenu.addEventListener(
+  'close',
+  () => {
+    if (resumeAfterMenu && latestStatus?.paused) game.togglePause();
+    resumeAfterMenu = false;
+  },
+  options,
+);
+for (const button of document.querySelectorAll<HTMLButtonElement>(
+  '[data-map]',
+)) {
+  button.addEventListener(
+    'click',
+    () => {
+      const next = button.dataset.map;
+      if (next !== 'ridge' && next !== 'tropical') return;
+      if (next !== activeMap) {
+        const muted = latestStatus?.muted;
+        resumeAfterMenu = false;
+        game.dispose();
+        activeMap = next;
+        game = createGame(ui.viewport, updateStatus, activeMap);
+        if (muted) game.toggleMute();
+        for (const choice of document.querySelectorAll<HTMLButtonElement>(
+          '[data-map]',
+        ))
+          choice.setAttribute(
+            'aria-pressed',
+            String(choice.dataset.map === activeMap),
+          );
+      }
+      ui.mapMenu.close();
+      ui.viewport.querySelector('canvas')?.focus();
+    },
+    options,
+  );
+}
 
 for (const button of document.querySelectorAll<HTMLButtonElement>(
   '[data-key]',

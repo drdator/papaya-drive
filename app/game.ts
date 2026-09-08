@@ -10,18 +10,12 @@ import { createCrashVisuals } from './vehicle-crash';
 import { createVehicleWater, advanceVehicleWater } from './vehicle-water';
 import { createWaterEffects } from './water-effects';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import {
-  createTerrain,
-  createOcean,
-  seaLevel,
-  mountainHeight,
-  terrainHeight,
-  route,
-  routeHeading,
-  routeLength,
-  distanceToRoad,
-} from './terrain';
+import { createTerrain, createOcean, seaLevel } from './terrain';
 import { groundUnderCar, wheelMounts } from './vehicle-ground';
+import { maps, type MapId } from './maps';
+import { createFlyCamera } from './fly-camera';
+import { createTropicalSurf } from './tropical-map';
+import { createTropicalScenery } from './tropical-scenery';
 
 export type GameStatus = {
   ready: boolean;
@@ -38,12 +32,14 @@ export type GameStatus = {
   damage: number;
   muted: boolean;
   flooded: boolean;
+  flying: boolean;
 };
 export type GameControls = {
   dispose(): void;
   reset(): void;
   togglePause(): void;
   toggleMute(): void;
+  toggleFly(): void;
   setKey(key: string, down: boolean): void;
 };
 const gateCount = 8;
@@ -52,7 +48,15 @@ const step = 1 / 120;
 export function createGame(
   container: HTMLElement,
   onStatus: (status: GameStatus) => void,
+  mapId: MapId = 'ridge',
 ): GameControls {
+  const map = maps[mapId];
+  const { route, routeHeading, routeLength, distanceToRoad } = map;
+  const {
+    heightAt: terrainHeight,
+    mountainAt: mountainHeight,
+    tropical,
+  } = map.terrain;
   const status: GameStatus = {
     ready: false,
     speed: 0,
@@ -68,10 +72,13 @@ export function createGame(
     damage: 0,
     muted: false,
     flooded: false,
+    flying: false,
   };
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color('#c5dfd6');
-  scene.fog = new THREE.Fog('#c5dfd6', 65, 210);
+  const sky = tropical ? '#94d7ee' : '#c5dfd6';
+  scene.background = new THREE.Color(sky);
+  const fog = new THREE.Fog(sky, tropical ? 120 : 65, tropical ? 320 : 210);
+  scene.fog = fog;
   const camera = new THREE.PerspectiveCamera(48, 1, 0.1, 400);
   let renderer: THREE.WebGLRenderer;
   try {
@@ -90,6 +97,7 @@ export function createGame(
       reset() {},
       togglePause() {},
       toggleMute() {},
+      toggleFly() {},
       setKey() {},
     };
   }
@@ -97,11 +105,9 @@ export function createGame(
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFShadowMap;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.25;
-  renderer.domElement.setAttribute(
-    'aria-label',
-    '3D forest driving playground. Use W or Up to accelerate, S or Down to brake and reverse, A/D or Left/Right to steer, Space for the handbrake, R to reset, and Escape to pause.',
-  );
+  renderer.toneMappingExposure = tropical ? 1.1 : 1.25;
+  const drivingDescription = `3D ${map.name} driving playground. Use W or Up to accelerate, S or Down to brake and reverse, A/D or Left/Right to steer, Space for the handbrake, R to reset, and Escape to pause.`;
+  renderer.domElement.setAttribute('aria-label', drivingDescription);
   renderer.domElement.tabIndex = 0;
   container.appendChild(renderer.domElement);
   scene.add(new THREE.HemisphereLight('#f6f2db', '#6f8263', 2.4));
@@ -121,12 +127,20 @@ export function createGame(
   sun.shadow.bias = -0.00015;
   scene.add(sun, sun.target);
 
-  const ground = createTerrain();
+  const waterTime = new THREE.Uniform(0);
+  const ground = createTerrain(map.terrain, waterTime);
+  const mountain = new THREE.Group();
+  scene.add(mountain);
   scene.add(ground);
-  scene.add(createOcean());
+  scene.add(createOcean(map.terrain, waterTime));
+  const surf = tropical ? createTropicalSurf(waterTime) : undefined;
+  if (surf) scene.add(surf);
+  const cameraRay = new THREE.Raycaster();
+  const cameraOrigin = new THREE.Vector3();
+  const cameraDirection = new THREE.Vector3();
   const waterEffects = createWaterEffects();
   scene.add(waterEffects.group);
-  const skidMarks = createSkidMarks();
+  const skidMarks = createSkidMarks(terrainHeight);
   scene.add(skidMarks.mesh);
 
   // Small route posts make the edge legible without a hard track barrier.
@@ -178,7 +192,7 @@ export function createGame(
   function placeGate() {
     const heading = routeHeading((status.gate + 1) / gateCount);
     const p = gatePositions[status.gate];
-    const surface = groundUnderCar(p.x, p.z, heading);
+    const surface = groundUnderCar(p.x, p.z, heading, terrainHeight);
     checkpoint.position.set(p.x, surface.height, p.z);
     checkpoint.rotation.set(surface.pitch, heading, surface.bank, 'YXZ');
   }
@@ -221,14 +235,19 @@ export function createGame(
   const inverseRotation = new THREE.Quaternion();
   const damage = createVehicleDamage();
   const water = createVehicleWater();
-  const audio = createVehicleAudio();
+  const audio = createVehicleAudio(map.music);
   let crashVisuals: ReturnType<typeof createCrashVisuals> | undefined;
   const impactPoint = new THREE.Vector3();
   const impactNormal = new THREE.Vector3();
   const impactVelocity = new THREE.Vector3();
   const previousWheelOffsets = wheelMounts.map(() => 0);
   const start = route(0);
-  const surfaceAtStart = groundUnderCar(start.x, start.z, heading);
+  const surfaceAtStart = groundUnderCar(
+    start.x,
+    start.z,
+    heading,
+    terrainHeight,
+  );
   const vertical = {
     height: surfaceAtStart.height,
     velocity: 0,
@@ -259,6 +278,7 @@ export function createGame(
   let orbitBlend = 0,
     orbitReturnAt = 0;
   const canvas = renderer.domElement;
+  const flyCamera = createFlyCamera(camera, terrainHeight);
 
   function stopOrbit() {
     if (orbitPointer === null) return;
@@ -273,6 +293,7 @@ export function createGame(
   }
   function startOrbit(event: PointerEvent) {
     if (!status.ready || event.button !== 0 || orbitPointer !== null) return;
+    if (!status.paused) audio.unlock();
     event.preventDefault();
     orbitPointer = event.pointerId;
     orbitX = event.clientX;
@@ -282,6 +303,13 @@ export function createGame(
   }
   function moveOrbit(event: PointerEvent) {
     if (event.pointerId !== orbitPointer) return;
+    if (status.flying) {
+      if (!status.paused)
+        flyCamera.look(event.clientX - orbitX, event.clientY - orbitY);
+      orbitX = event.clientX;
+      orbitY = event.clientY;
+      return;
+    }
     orbitYaw -= (event.clientX - orbitX) * 0.006;
     orbitPitch = THREE.MathUtils.clamp(
       orbitPitch + (event.clientY - orbitY) * 0.004,
@@ -320,6 +348,7 @@ export function createGame(
     });
   }
   function reset() {
+    if (status.flying) toggleFly();
     stopOrbit();
     orbitYaw = orbitPitch = orbitBlend = orbitReturnAt = 0;
     audio.reset();
@@ -377,6 +406,56 @@ export function createGame(
     keys.clear();
     onStatus({ ...status });
   }
+  function toggleFly() {
+    if (!status.ready) return;
+    stopOrbit();
+    keys.clear();
+    status.flying = !status.flying;
+    if (status.flying) {
+      status.paused = false;
+      flyCamera.enter(car.position);
+      flyCamera.update(0, keys);
+      audio.silence();
+    } else {
+      physics?.teleport(flyCamera.carPosition, flyCamera.carRotation);
+      readPhysics();
+      previousPosition.copy(position);
+      previousRotation.copy(rotation);
+      previousWheelOffsets.splice(
+        0,
+        previousWheelOffsets.length,
+        ...vertical.wheelOffsets,
+      );
+      previousSteering = steering;
+      previousSpeed = status.speed = 0;
+      status.airborne = true;
+      status.skidding = false;
+      status.paused = false;
+      accumulator = 0;
+      damage.impactTime = damage.impactPeak = 0;
+      water.depth = 0;
+      waterEffects.reset();
+      skidMarks.update([
+        { point: position, skidding: false },
+        { point: position, skidding: false },
+      ]);
+      cameraLook.copy(position).y += 0.6;
+      renderCar(0);
+      orbitYaw = orbitPitch = orbitBlend = orbitReturnAt = 0;
+    }
+    fog.near = status.flying ? 200 : tropical ? 120 : 65;
+    fog.far = status.flying ? 600 : tropical ? 320 : 210;
+    camera.far = status.flying ? 700 : 400;
+    camera.updateProjectionMatrix();
+    audio.unlock();
+    canvas.setAttribute(
+      'aria-label',
+      status.flying
+        ? `Free flight over ${map.name}. Drag to look, use WASD or arrows to move, Q/E to descend or rise, and Shift to move faster. Use Drive to drop the car here.`
+        : drivingDescription,
+    );
+    onStatus({ ...status });
+  }
   function toggleMute() {
     status.muted = !status.muted;
     audio.setMuted(status.muted);
@@ -400,12 +479,17 @@ export function createGame(
   }
   function keyDown(event: KeyboardEvent) {
     if (
-      event.target instanceof HTMLButtonElement &&
-      [' ', 'Enter'].includes(event.key)
+      event.target instanceof Element &&
+      (event.target.closest('dialog') ||
+        (event.target instanceof HTMLButtonElement &&
+          [' ', 'Enter'].includes(event.key)))
     )
       return;
     const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
-    if (controlledKeys.has(key)) {
+    if (
+      controlledKeys.has(key) ||
+      (status.flying && ['q', 'e', 'Shift'].includes(key))
+    ) {
       event.preventDefault();
       setKey(key, true);
     }
@@ -447,12 +531,12 @@ export function createGame(
   const loader = new GLTFLoader();
   const assetNames = [
     'papaya-car',
-    'tree-oak',
-    'tree-aspen',
-    'tree-pine',
+    ...map.trees,
     'rock-boulder',
     'rock-flat',
     'rock-crag',
+    ...(map.mountain ? [map.mountain] : []),
+    ...(map.props ? [map.props] : []),
   ];
   const loaded: THREE.Object3D[] = [];
   function release(object: THREE.Object3D) {
@@ -468,7 +552,9 @@ export function createGame(
   }
   Promise.all(
     assetNames.map(async (name) => {
-      const gltf = await loader.loadAsync(`/models/${name}.glb`);
+      const gltf = await loader.loadAsync(
+        `${import.meta.env.BASE_URL}models/${name}.glb`,
+      );
       if (disposed) {
         release(gltf.scene);
         return gltf.scene;
@@ -486,7 +572,19 @@ export function createGame(
     .then(async (models) => {
       await initializeVehiclePhysics();
       if (disposed) return;
-      physics = createVehiclePhysics(ground.geometry);
+      if (map.mountain) mountain.add(models[assetNames.indexOf(map.mountain)]);
+      physics = createVehiclePhysics(ground.geometry, terrainHeight);
+      mountain.traverse((object) => {
+        if (object instanceof THREE.Mesh) physics!.addSolid(object);
+      });
+      if (map.props) {
+        const props = models[assetNames.indexOf(map.props)];
+        scene.add(props);
+        props.traverse((object) => {
+          if (object instanceof THREE.Mesh && !object.name.includes('rope'))
+            physics!.addSolid(object);
+        });
+      }
       const body = models[0];
       car.add(body);
       const wheelObjects: THREE.Object3D[] = [];
@@ -528,34 +626,40 @@ export function createGame(
         car.add(beam, differential);
         axles.push({ beam, differential, left, right });
       }
-      // Keep the road and the starting spot clear. The same seven GLBs are used throughout.
+      // Each map keeps its scenery clear of the driving line.
       crashVisuals = createCrashVisuals(car, body, scene, terrainHeight);
-      for (let i = 0; i < 255; i++) {
-        const x = (random() - 0.5) * 145,
-          z = (random() - 0.5) * 145;
-        if (distanceToRoad(x, z) < 6.4) continue;
-        if (Math.hypot(x - start.x, z - start.z) < 8) continue;
-        const surface = terrainHeight(x, z);
-        if (surface < seaLevel + 1.2) continue;
-        const isTree = random() > 0.32;
-        const index = isTree
-          ? 1 + Math.floor(random() * 3)
-          : 4 + Math.floor(random() * 3);
-        const model = models[index].clone(true);
-        const scale = isTree ? 1.6 + random() * 1.5 : 0.9 + random() * 1.25;
-        model.scale.setScalar(scale);
-        model.position.set(x, surface - 0.08, z);
-        model.rotation.y = random() * Math.PI * 2;
-        if (isTree && mountainHeight(x, z) > 6) continue;
-        scene.add(model);
-        physics.addObstacle({
-          x,
-          z,
-          radius: (isTree ? 0.16 : index === 5 ? 0.8 : 0.67) * scale,
-          bottom: surface,
-          top: surface + (isTree ? 3.5 : index === 5 ? 0.6 : 1.4) * scale,
-        });
-      }
+      if (tropical) {
+        const scenery = createTropicalScenery(models.slice(1, 4));
+        scene.add(scenery.group);
+        scenery.solids.forEach((mesh) => physics!.addSolid(mesh));
+        scenery.trunks.forEach((trunk) => physics!.addObstacle(trunk));
+      } else
+        for (let i = 0; i < 255; i++) {
+          const x = (random() - 0.5) * 145,
+            z = (random() - 0.5) * 145;
+          if (distanceToRoad(x, z) < 6.4) continue;
+          if (Math.hypot(x - start.x, z - start.z) < 8) continue;
+          const surface = terrainHeight(x, z);
+          if (surface < seaLevel + 1.2) continue;
+          const isTree = random() > 0.32;
+          const index = isTree
+            ? 1 + Math.floor(random() * 3)
+            : 4 + Math.floor(random() * 3);
+          const model = models[index].clone(true);
+          const scale = isTree ? 1.6 + random() * 1.5 : 0.9 + random() * 1.25;
+          model.scale.setScalar(scale);
+          model.position.set(x, surface - 0.08, z);
+          model.rotation.y = random() * Math.PI * 2;
+          if (isTree && mountainHeight(x, z) > 6) continue;
+          scene.add(model);
+          physics.addObstacle({
+            x,
+            z,
+            radius: (isTree ? 0.16 : index === 5 ? 0.8 : 0.67) * scale,
+            bottom: surface,
+            top: surface + (isTree ? 3.5 : index === 5 ? 0.6 : 1.4) * scale,
+          });
+        }
       status.ready = true;
       reset();
     })
@@ -717,7 +821,9 @@ export function createGame(
     frame = requestAnimationFrame(animate);
     const dt = previousTime ? Math.min((time - previousTime) / 1000, 0.1) : 0;
     previousTime = time;
-    if (status.ready && !status.paused) {
+    if (!status.paused) waterTime.value += dt;
+    const driving = status.ready && !status.paused && !status.flying;
+    if (driving) {
       accumulator += dt;
       while (accumulator >= step) {
         simulate(step);
@@ -728,7 +834,7 @@ export function createGame(
     const alpha = accumulator / step;
     renderCar(alpha);
     waterEffects.update(
-      status.ready && !status.paused ? dt : 0,
+      driving ? dt : 0,
       car,
       Math.abs(status.speed),
       vertical.velocity,
@@ -758,68 +864,87 @@ export function createGame(
           physics?.state.wheels.slice(2).some((wheel) => wheel.contact) ??
           false,
         skid: water.depth < 0.1 ? tireSkid : 0,
-        running:
-          status.ready &&
-          !status.paused &&
-          status.damage < 100 &&
-          !status.flooded,
-        active: status.ready && !status.paused,
+        running: driving && status.damage < 100 && !status.flooded,
+        active: driving,
+        musicActive: status.ready && !status.paused,
       },
       dt,
     );
-    const forwardX = Math.sin(car.rotation.y),
-      forwardZ = Math.cos(car.rotation.y);
-    const distance =
-      12 +
-      Math.abs(THREE.MathUtils.lerp(previousSpeed, status.speed, alpha)) * 0.1;
-    const orbitHeld = orbitPointer !== null || time < orbitReturnAt;
-    if (!orbitHeld) {
-      orbitYaw = THREE.MathUtils.damp(orbitYaw, 0, 2.5, dt);
-      orbitPitch = THREE.MathUtils.damp(orbitPitch, 0, 2.5, dt);
+    if (status.flying) {
+      if (!status.paused) flyCamera.update(dt, keys);
+      car.position.copy(flyCamera.carPosition);
+      car.quaternion.copy(flyCamera.carRotation);
+    } else {
+      const forwardX = Math.sin(car.rotation.y),
+        forwardZ = Math.cos(car.rotation.y);
+      const distance =
+        12 +
+        Math.abs(THREE.MathUtils.lerp(previousSpeed, status.speed, alpha)) *
+          0.1;
+      const orbitHeld = orbitPointer !== null || time < orbitReturnAt;
+      if (!orbitHeld) {
+        orbitYaw = THREE.MathUtils.damp(orbitYaw, 0, 2.5, dt);
+        orbitPitch = THREE.MathUtils.damp(orbitPitch, 0, 2.5, dt);
+      }
+      orbitBlend = THREE.MathUtils.damp(orbitBlend, orbitHeld ? 1 : 0, 4, dt);
+      const cameraHeading = car.rotation.y + orbitYaw;
+      const elevation = THREE.MathUtils.clamp(
+        Math.atan2(7.4, distance) + orbitPitch,
+        0.12,
+        1.3,
+      );
+      const orbitRadius = Math.hypot(distance, 7.4);
+      const horizontalDistance = Math.cos(elevation) * orbitRadius;
+      cameraGoal.set(
+        car.position.x - Math.sin(cameraHeading) * horizontalDistance,
+        car.position.y + 0.6 + Math.sin(elevation) * orbitRadius,
+        car.position.z - Math.cos(cameraHeading) * horizontalDistance,
+      );
+      cameraGoal.y = Math.max(
+        cameraGoal.y,
+        seaLevel + 2.5,
+        terrainHeight(cameraGoal.x, cameraGoal.z) + 3.5,
+      );
+      camera.position.lerp(
+        cameraGoal,
+        1 - Math.exp(-(orbitPointer !== null ? 14 : 3.6) * dt),
+      );
+      camera.position.y = Math.max(
+        camera.position.y,
+        seaLevel + 2,
+        terrainHeight(camera.position.x, camera.position.z) + 2,
+      );
+      cameraLook.lerp(
+        cameraLookGoal.set(
+          car.position.x + forwardX * 4 * (1 - orbitBlend),
+          car.position.y + 0.6,
+          car.position.z + forwardZ * 4 * (1 - orbitBlend),
+        ),
+        1 - Math.exp(-5 * dt),
+      );
+      if (tropical) {
+        cameraOrigin.copy(car.position).y += 1.3;
+        cameraDirection.subVectors(camera.position, cameraOrigin);
+        cameraRay.set(cameraOrigin, cameraDirection.clone().normalize());
+        cameraRay.far = cameraDirection.length();
+        const obstruction = cameraRay.intersectObject(mountain, true)[0];
+        if (obstruction)
+          camera.position
+            .copy(cameraOrigin)
+            .addScaledVector(
+              cameraRay.ray.direction,
+              Math.max(0.8, obstruction.distance - 0.5),
+            );
+      }
+      camera.lookAt(cameraLook);
     }
-    orbitBlend = THREE.MathUtils.damp(orbitBlend, orbitHeld ? 1 : 0, 4, dt);
-    const cameraHeading = car.rotation.y + orbitYaw;
-    const elevation = THREE.MathUtils.clamp(
-      Math.atan2(7.4, distance) + orbitPitch,
-      0.12,
-      1.3,
-    );
-    const orbitRadius = Math.hypot(distance, 7.4);
-    const horizontalDistance = Math.cos(elevation) * orbitRadius;
-    cameraGoal.set(
-      car.position.x - Math.sin(cameraHeading) * horizontalDistance,
-      car.position.y + 0.6 + Math.sin(elevation) * orbitRadius,
-      car.position.z - Math.cos(cameraHeading) * horizontalDistance,
-    );
-    cameraGoal.y = Math.max(
-      cameraGoal.y,
-      seaLevel + 2.5,
-      terrainHeight(cameraGoal.x, cameraGoal.z) + 3.5,
-    );
-    camera.position.lerp(
-      cameraGoal,
-      1 - Math.exp(-(orbitPointer !== null ? 14 : 3.6) * dt),
-    );
-    camera.position.y = Math.max(
-      camera.position.y,
-      seaLevel + 2,
-      terrainHeight(camera.position.x, camera.position.z) + 2,
-    );
-    cameraLook.lerp(
-      cameraLookGoal.set(
-        car.position.x + forwardX * 4 * (1 - orbitBlend),
-        car.position.y + 0.6,
-        car.position.z + forwardZ * 4 * (1 - orbitBlend),
-      ),
-      1 - Math.exp(-5 * dt),
-    );
-    camera.lookAt(cameraLook);
+    const lightTarget = status.flying ? camera.position : car.position;
     sun.position.set(
-      car.position.x - 25,
-      car.position.y + 42,
-      car.position.z + 18,
+      lightTarget.x - 25,
+      lightTarget.y + 42,
+      lightTarget.z + 18,
     );
-    sun.target.position.copy(car.position);
+    sun.target.position.copy(lightTarget);
     gatePad.material.opacity = 0.22 + Math.sin(time * 0.003) * 0.07;
     renderer.render(scene, camera);
     hudTime += dt;
@@ -834,6 +959,7 @@ export function createGame(
     reset,
     togglePause,
     toggleMute,
+    toggleFly,
     setKey,
     dispose() {
       disposed = true;
