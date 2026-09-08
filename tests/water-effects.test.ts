@@ -10,12 +10,12 @@ import {
 } from '../app/terrain.ts';
 
 await test('the mountain leaves the whole track and six-meter shoulders untouched', () => {
-  const taller = mountainHeight(-14, -4),
-    shorter = mountainHeight(-5, 4);
+  const taller = mountainHeight(-15, -5),
+    shorter = mountainHeight(-8, 1);
   assert.ok(taller > shorter && shorter > 12);
   assert.ok(
-    mountainHeight(-9.5, 0) < shorter - 3,
-    'A saddle separates the two peaks',
+    mountainHeight(-11.5, -2) < shorter,
+    'A shallow saddle connects the two peaks',
   );
   for (let i = 0; i < 960; i++) {
     const p = route(i / 960);

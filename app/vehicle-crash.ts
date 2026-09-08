@@ -1,14 +1,13 @@
 import * as THREE from 'three';
-
-function crushedFrontZ(z: number) {
-  return z - THREE.MathUtils.clamp((z - 0.5) / 1.38, 0, 1) * 0.98;
-}
+import { TessellateModifier } from 'three/addons/modifiers/TessellateModifier.js';
+import { createVehicleEngine } from './vehicle-engine.ts';
 
 export type CarImpact = {
   point: THREE.Vector3;
   normal: THREE.Vector3;
   speed: number;
   damage: number;
+  radius?: number;
   fatal?: boolean;
 };
 
@@ -17,18 +16,36 @@ export function dentVertex(
   vertex: THREE.Vector3,
   impact: CarImpact,
   strength = 1,
+  reference = vertex,
 ) {
-  const radius = 1.1 + Math.min(1, impact.damage / 65) * 0.9;
-  const distance = Math.hypot(
-    vertex.x - impact.point.x,
-    (vertex.y - impact.point.y) * 0.6,
-    vertex.z - impact.point.z,
-  );
-  const weight = Math.max(0, 1 - distance / radius) ** 2;
-  const depth = Math.min(0.65, impact.damage * 0.012) * weight * strength;
+  const radius = THREE.MathUtils.clamp(impact.radius ?? 1.1, 0.15, 1.6);
+  const dx = reference.x - impact.point.x,
+    dy = reference.y - impact.point.y,
+    dz = reference.z - impact.point.z;
+  const horizontal = Math.hypot(impact.normal.x, impact.normal.z);
+  const nx = horizontal > 0.1 ? impact.normal.x / horizontal : 0,
+    nz = horizontal > 0.1 ? impact.normal.z / horizontal : 1;
+  const across = dx * nz - dz * nx;
+  const inward =
+    dx * impact.normal.x + dy * impact.normal.y + dz * impact.normal.z;
+  const lateral =
+    1 -
+    THREE.MathUtils.smoothstep(Math.abs(across), radius * 0.55, radius + 0.28);
+  const vertical = 1 - THREE.MathUtils.smoothstep(Math.abs(dy), 0.35, 1.1);
+  const propagation =
+    1 - THREE.MathUtils.smoothstep(Math.max(0, inward), 0, 1.5);
+  const weight = lateral * vertical * propagation;
+  const depth = Math.min(0.95, impact.damage * 0.014) * weight * strength;
+  const upper = THREE.MathUtils.smoothstep(reference.y, 0.65, 1);
   vertex.addScaledVector(impact.normal, depth);
-  // Upper sheet metal folds upward while the lower chassis resists crushing.
-  if (vertex.y > 0.75) vertex.y += depth * 0.5;
+  // Sheet metal folds at the sides of the indentation and behind the contact.
+  vertex.y +=
+    depth *
+    upper *
+    horizontal *
+    (0.12 +
+      0.45 * (1 - lateral) +
+      0.25 * Math.sin((Math.max(0, inward) * Math.PI) / 1.5));
   return weight;
 }
 
@@ -39,6 +56,8 @@ export function createCrashVisuals(
   heightAt: (x: number, z: number) => number,
   random = Math.random,
 ) {
+  const engine = createVehicleEngine();
+  body.add(engine.group);
   car.updateWorldMatrix(true, true);
   const carInverse = car.matrixWorld.clone().invert();
   const frontWheels = car.children
@@ -55,6 +74,7 @@ export function createCrashVisuals(
     position: THREE.Vector3;
     quaternion: THREE.Quaternion;
     geometry: THREE.BufferGeometry;
+    index: THREE.BufferAttribute | null;
     original: Float32Array;
     toCar: THREE.Matrix4;
     fromCar: THREE.Matrix4;
@@ -69,7 +89,16 @@ export function createCrashVisuals(
     if (!(object instanceof THREE.Mesh) || !object.parent) return;
     const geometry = object.geometry;
     // Keep the source GLB untouched so reset can restore it exactly.
-    object.geometry = geometry.clone();
+    object.geometry = /body|bumper|grille/i.test(object.name)
+      ? new TessellateModifier(0.22, 8).modify(geometry)
+      : geometry.clone();
+    if (!object.geometry.index)
+      object.geometry.setIndex(
+        Array.from(
+          { length: object.geometry.getAttribute('position').count },
+          (_, i) => i,
+        ),
+      );
     object.geometry.computeBoundingBox();
     const toCar = carInverse.clone().multiply(object.matrixWorld);
     const name = object.name;
@@ -79,7 +108,10 @@ export function createCrashVisuals(
       position: object.position.clone(),
       quaternion: object.quaternion.clone(),
       geometry,
-      original: Float32Array.from(geometry.getAttribute('position').array),
+      index: object.geometry.index!.clone(),
+      original: Float32Array.from(
+        object.geometry.getAttribute('position').array,
+      ),
       toCar,
       fromCar: toCar.clone().invert(),
       center: object.geometry
@@ -126,6 +158,89 @@ export function createCrashVisuals(
   const original = new THREE.Vector3();
   const rotationStep = new THREE.Quaternion();
   const spinEuler = new THREE.Euler();
+  let hood: ReturnType<typeof openHood>;
+
+  function openHood() {
+    const part = parts.find((part) => part.mesh.name === 'Body_1');
+    if (!part) return;
+    const positions = part.mesh.geometry.getAttribute('position');
+    const index = part.index;
+    const panel: number[] = [];
+    const remaining: number[] = [];
+    // The GLB's hood is the upper panel between the windshield and nose.
+    for (let i = 0; i < (index?.count ?? positions.count); i += 3) {
+      const triangle = [0, 1, 2].map((j) =>
+        index ? index.getX(i + j) : i + j,
+      );
+      const corners = triangle.map((j) =>
+        new THREE.Vector3()
+          .fromArray(part.original, j * 3)
+          .applyMatrix4(part.toCar),
+      );
+      const normal = new THREE.Vector3()
+        .subVectors(corners[1], corners[0])
+        .cross(new THREE.Vector3().subVectors(corners[2], corners[0]))
+        .normalize();
+      const isHood =
+        normal.y > 0.8 &&
+        triangle.every((j) => {
+          original.fromArray(part.original, j * 3).applyMatrix4(part.toCar);
+          return original.y > 0.9 && original.z > 0.69;
+        });
+      (isHood ? panel : remaining).push(...triangle);
+    }
+    if (!panel.length) return;
+    const rearZ = Math.min(
+      ...panel.map(
+        (i) =>
+          original.fromArray(part.original, i * 3).applyMatrix4(part.toCar).z,
+      ),
+    );
+    const rearIndices = [...new Set(panel)].filter(
+      (i) =>
+        original.fromArray(part.original, i * 3).applyMatrix4(part.toCar).z <
+        rearZ + 0.01,
+    );
+    const hinge = new THREE.Vector3();
+    const originalHinge = new THREE.Vector3();
+    for (const i of rearIndices) {
+      hinge.add(
+        vertex.fromBufferAttribute(positions, i).applyMatrix4(part.toCar),
+      );
+      originalHinge.add(
+        original.fromArray(part.original, i * 3).applyMatrix4(part.toCar),
+      );
+    }
+    hinge.divideScalar(rearIndices.length);
+    originalHinge.divideScalar(rearIndices.length);
+    const points = panel.map((i) => {
+      const rest = new THREE.Vector3()
+        .fromArray(part.original, i * 3)
+        .applyMatrix4(part.toCar)
+        .sub(originalHinge);
+      const dent = new THREE.Vector3()
+        .fromBufferAttribute(positions, i)
+        .applyMatrix4(part.toCar)
+        .sub(hinge)
+        .sub(rest);
+      // The released panel keeps its shape instead of inheriting the crushed nose.
+      return rest.add(dent.multiplyScalar(0.2).clampLength(0, 0.1));
+    });
+    const geometry = new THREE.BufferGeometry().setFromPoints(points);
+    geometry.computeVertexNormals();
+    const sourceMaterial = Array.isArray(part.mesh.material)
+      ? part.mesh.material[0]
+      : part.mesh.material;
+    const material = sourceMaterial.clone();
+    material.side = THREE.DoubleSide;
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.name = 'Popped_hood';
+    mesh.position.copy(hinge);
+    mesh.castShadow = mesh.receiveShadow = true;
+    car.add(mesh);
+    part.mesh.geometry.setIndex(remaining);
+    return { mesh, angle: 0, previous: 0, velocity: 4, detached: false };
+  }
 
   function clearCracks(part: (typeof parts)[number]) {
     if (!part.cracks) return;
@@ -209,6 +324,12 @@ export function createCrashVisuals(
   }
 
   function reset() {
+    if (hood) {
+      hood.mesh.removeFromParent();
+      hood.mesh.geometry.dispose();
+      hood.mesh.material.dispose();
+      hood = undefined;
+    }
     for (const piece of debris)
       if (piece.disposable) piece.object.removeFromParent();
     debris.length = 0;
@@ -226,6 +347,7 @@ export function createCrashVisuals(
       part.mesh.visible = true;
       const positions = part.mesh.geometry.getAttribute('position');
       positions.array.set(part.original);
+      part.mesh.geometry.setIndex(part.index?.clone() ?? null);
       positions.needsUpdate = true;
       part.mesh.geometry.computeVertexNormals();
       part.mesh.geometry.computeBoundingSphere();
@@ -238,37 +360,24 @@ export function createCrashVisuals(
     reset,
     impact(impact: CarImpact, velocity: THREE.Vector3) {
       let glassBroken = false;
+      const alreadyPopped = hood !== undefined && !hood.detached;
       const fatalFront =
         impact.fatal && impact.point.z > 0.5 && !frontDestroyed;
       if (fatalFront) frontDestroyed = true;
       car.updateWorldMatrix(true, true);
       for (const part of parts) {
         if (part.detached) continue;
-        const near = Math.max(0, 1 - part.center.distanceTo(impact.point) / 2);
-        part.damage += (impact.damage / 100) * near * near;
-        if (fatalFront && part.center.z > 1.3) part.damage = 1;
-        if (fatalFront && /windshield/i.test(part.mesh.name))
-          part.damage = Math.max(0.1, part.damage);
         const positions = part.mesh.geometry.getAttribute('position');
+        let coverage = 0;
         for (let i = 0; i < positions.count; i++) {
           vertex.fromBufferAttribute(positions, i).applyMatrix4(part.toCar);
           original.fromArray(part.original, i * 3).applyMatrix4(part.toCar);
-          dentVertex(
+          coverage += dentVertex(
             vertex,
             impact,
             /cabin|roof|window|windshield/i.test(part.mesh.name) ? 0.45 : 1,
+            original,
           );
-          if (fatalFront && /^Body/i.test(part.mesh.name) && original.z > 0.5) {
-            const nose = THREE.MathUtils.clamp((original.z - 0.5) / 1.38, 0, 1);
-            const upper = THREE.MathUtils.smoothstep(original.y, 0.6, 0.95);
-            // Fold the hood into a pronounced ridge and shorten the engine bay.
-            vertex.z = Math.min(vertex.z, crushedFrontZ(original.z));
-            vertex.y = Math.max(
-              vertex.y,
-              original.y + upper * (0.55 * Math.sin(nose * Math.PI * 0.85)),
-            );
-            vertex.x += (original.x - impact.point.x) * nose * 0.12;
-          }
           // Bound accumulated dents so repeated scrapes cannot invert the body.
           vertex
             .sub(original)
@@ -280,7 +389,9 @@ export function createCrashVisuals(
         positions.needsUpdate = true;
         part.mesh.geometry.computeVertexNormals();
         part.mesh.geometry.computeBoundingSphere();
-        if (part.glass && part.damage > 0.04 && near > 0) {
+        coverage /= positions.count;
+        part.damage += (impact.damage / 100) * coverage;
+        if (part.glass && part.damage > 0.04 && coverage > 0) {
           if (!part.cracks) glassBroken = true;
           crackGlass(part);
         }
@@ -290,26 +401,47 @@ export function createCrashVisuals(
           if (/light|indicator/i.test(part.mesh.name)) glassBroken = true;
         }
       }
-      if (
-        fatalFront &&
-        impact.speed >= 10 &&
-        random() < 0.6 &&
-        frontWheels.length
-      ) {
-        const nearest = frontWheels.reduce((a, b) =>
-          Math.abs(a.position.x - impact.point.x) <
-          Math.abs(b.position.x - impact.point.x)
-            ? a
-            : b,
+      let struckWheel: (typeof frontWheels)[number] | undefined;
+      let strongestWheelContact = 0.35;
+      for (const wheel of frontWheels) {
+        if (wheel.object.parent !== car) continue;
+        original.copy(wheel.position).setY(0.65);
+        vertex.copy(original);
+        const weight = dentVertex(vertex, impact, 0.75);
+        wheel.object.position.z = THREE.MathUtils.clamp(
+          wheel.object.position.z + vertex.z - original.z,
+          wheel.position.z - 0.8,
+          wheel.position.z + 0.3,
         );
-        throwPart(nearest.object, velocity, impact, false);
-      }
-      if (fatalFront) {
-        // Attached wheel mounts follow the same compression as the engine bay.
-        for (const wheel of frontWheels) {
-          if (wheel.object.parent === car)
-            wheel.object.position.z = crushedFrontZ(wheel.position.z);
+        if (weight > strongestWheelContact) {
+          struckWheel = wheel;
+          strongestWheelContact = weight;
         }
+      }
+      if (fatalFront && impact.speed >= 10 && struckWheel && random() < 0.6)
+        throwPart(struckWheel.object, velocity, impact, false);
+      if (
+        !hood &&
+        impact.point.z > 0.5 &&
+        impact.speed >= 8 &&
+        random() < THREE.MathUtils.clamp((impact.speed - 5) * 0.025, 0, 0.55)
+      )
+        hood = openHood();
+      if (
+        hood &&
+        !hood.detached &&
+        impact.speed >= 18 &&
+        (alreadyPopped || (impact.damage >= 45 && random() < 0.25))
+      ) {
+        hood.mesh.rotation.x = -hood.angle;
+        hood.mesh.geometry.computeBoundingBox();
+        const center = hood.mesh.geometry.boundingBox!.getCenter(
+          new THREE.Vector3(),
+        );
+        hood.mesh.geometry.translate(-center.x, -center.y, -center.z);
+        hood.mesh.position.add(center.applyQuaternion(hood.mesh.quaternion));
+        throwPart(hood.mesh, velocity, impact, false);
+        hood.detached = true;
       }
       if (glassBroken) {
         for (let i = 0; i < 8 && debris.length < 48; i++) {
@@ -330,6 +462,11 @@ export function createCrashVisuals(
       return glassBroken;
     },
     update(dt: number) {
+      if (hood && !hood.detached) {
+        hood.previous = hood.angle;
+        hood.velocity += ((1.15 - hood.angle) * 40 - hood.velocity * 7) * dt;
+        hood.angle += hood.velocity * dt;
+      }
       for (const piece of debris) {
         piece.previous.copy(piece.position);
         piece.previousRotation.copy(piece.rotation);
@@ -363,6 +500,12 @@ export function createCrashVisuals(
       }
     },
     render(alpha: number) {
+      if (hood && !hood.detached)
+        hood.mesh.rotation.x = -THREE.MathUtils.lerp(
+          hood.previous,
+          hood.angle,
+          alpha,
+        );
       for (const piece of debris) {
         piece.object.position.lerpVectors(
           piece.previous,
@@ -382,6 +525,7 @@ export function createCrashVisuals(
         part.mesh.geometry.dispose();
         part.mesh.geometry = part.geometry;
       }
+      engine.dispose();
       shardGeometry.dispose();
       shardMaterial.dispose();
       crackMaterial.dispose();

@@ -599,9 +599,13 @@ export function createGame(
       .applyQuaternion(inverseRotation);
     impactNormal.copy(state.impact.normal).applyQuaternion(inverseRotation);
     impactVelocity.copy(state.impact.velocity);
+    const previousImpactPeak = damage.impactTime > dt ? damage.impactPeak : 0;
     advanceVehicleDamage(damage, strongestImpact, dt);
     const addedDamage = damage.amount - status.damage;
-    if (addedDamage > 0) {
+    if (
+      addedDamage > 0 ||
+      (strongestImpact >= 18 && strongestImpact > previousImpactPeak)
+    ) {
       // Use the current simulated pose when releasing parts into the world.
       car.position.copy(position);
       car.quaternion.copy(rotation);
@@ -611,6 +615,7 @@ export function createGame(
             point: impactPoint,
             normal: impactNormal,
             speed: strongestImpact,
+            radius: state.impact.radius,
             damage: addedDamage,
             fatal: damage.amount >= 100,
           },

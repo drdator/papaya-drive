@@ -93,8 +93,10 @@ export function createVehiclePhysics(terrain: THREE.BufferGeometry) {
   const contactNormal = new THREE.Vector3();
   const pointVelocity = new THREE.Vector3();
   const previousVelocity = new THREE.Vector3();
+  const obstacleRadii = new Map<number, number>();
   const impact = {
     speed: 0,
+    radius: 1.1,
     point: new THREE.Vector3(),
     normal: new THREE.Vector3(),
     velocity: new THREE.Vector3(),
@@ -152,7 +154,7 @@ export function createVehiclePhysics(terrain: THREE.BufferGeometry) {
       bottom: number;
       top: number;
     }) {
-      world.createCollider(
+      const collider = world.createCollider(
         RAPIER.ColliderDesc.cylinder(
           (obstacle.top - obstacle.bottom) / 2,
           obstacle.radius,
@@ -165,6 +167,7 @@ export function createVehiclePhysics(terrain: THREE.BufferGeometry) {
           .setFriction(0.6)
           .setRestitution(0.12),
       );
+      obstacleRadii.set(collider.handle, obstacle.radius);
     },
     reset(x: number, z: number, heading: number) {
       const surface = groundUnderCar(x, z, heading);
@@ -355,10 +358,14 @@ export function createVehiclePhysics(terrain: THREE.BufferGeometry) {
               .copy(manifold.normal())
               .multiplyScalar(flipped ? -1 : 1);
             const closing = previousVelocity.dot(normal);
-            const point = manifold.solverContactPoint(0);
-            if (point && closing > impact.speed) {
+            if (closing > impact.speed) {
               impact.speed = closing;
-              impact.point.copy(point);
+              impact.radius = obstacleRadii.get(other.handle) ?? 1.1;
+              // Use the center of the contact patch, not an arbitrary corner.
+              impact.point.set(0, 0, 0);
+              for (let i = 0; i < manifold.numSolverContacts(); i++)
+                impact.point.add(manifold.solverContactPoint(i)!);
+              impact.point.divideScalar(manifold.numSolverContacts());
               impact.normal.copy(normal).negate();
             }
           });

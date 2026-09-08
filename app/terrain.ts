@@ -7,8 +7,13 @@ export const seaLevel = -0.6;
 
 export function mountainHeight(x: number, z: number) {
   // A finite footprint leaves the road and its shoulders completely untouched.
-  const tall = 19 * Math.max(0, 1 - Math.hypot(x + 14, z + 4) / 11.5) ** 1.4;
-  const short = 14.5 * Math.max(0, 1 - Math.hypot(x + 5, z - 4) / 10) ** 1.4;
+  const dx = x + 15,
+    dz = z + 5;
+  const radius = Math.hypot((dx + 0.22 * dz) / 11.5, dz / 10);
+  const skew = 1 + 0.2 * Math.tanh((dx - dz) / 6);
+  // An offset, rounded summit with a longer flank on one side.
+  const tall = 21.5 * Math.max(0, 1 - radius ** 2 * skew) ** 2.5;
+  const short = 14.5 * Math.max(0, 1 - Math.hypot(x + 8, z - 1) / 10) ** 1.4;
   return Math.max(tall, short) + Math.min(tall, short) * 0.3;
 }
 

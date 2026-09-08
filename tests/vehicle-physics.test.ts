@@ -341,6 +341,30 @@ await test('obstacles generate damage, detached wheels lose contact, and reset r
   }
 });
 
+await test('crash contacts report the obstacle width and centered contact patch', () => {
+  for (const radius of [0.28, 1.4]) {
+    const car = flatCar();
+    try {
+      car.addObstacle({ x: 0, z: 10, radius, bottom: 0, top: 4 });
+      for (let i = 0; i < 240; i++) car.step(idle, dt);
+      car.body.setLinvel({ x: 0, y: 0, z: 20 }, true);
+      let hit = false;
+      for (let i = 0; i < 120; i++) {
+        const { impact } = car.step(gas, dt);
+        if (impact.speed < 8) continue;
+        assert.equal(impact.radius, radius);
+        assert.ok(Math.abs(impact.point.x) < 0.1);
+        assert.ok(impact.normal.z < -0.9);
+        hit = true;
+        break;
+      }
+      assert.ok(hit, 'The car reaches the obstacle at speed');
+    } finally {
+      car.dispose();
+    }
+  }
+});
+
 await test('driving down the real beach submerges and floods the engine', () => {
   const car = createVehiclePhysics(terrain);
   try {
