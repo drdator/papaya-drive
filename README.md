@@ -1,12 +1,12 @@
 # Papaya Drive
 
-A small Three.js driving game using the Blender car, three rocks, and three trees from the adjacent asset folders.
+A small Vite + TypeScript driving game with Three.js and Rapier using the Blender car, three rocks, and three trees from the adjacent asset folders.
 
 ![Papaya Drive: the orange car skidding through the forest track, with checkpoints and a damage meter.](docs/gameplay.png)
 
 [Play Papaya Drive](https://d2e17ltpesncil.cloudfront.net)
 
-Run `npm install` then `npm run dev`. Build with `npm run build`. Run the focused driving, contact, and terrain checks with `npm test` (Node 22.13+).
+Run `npm install` then `npm run dev`. The game runs at `http://localhost:3000`. Build static files with `npm run build`, then preview the build with `npm start`. Run the focused driving, contact, and terrain checks with `npm test` (Node 22.13+).
 
 - W / Up: accelerate
 - A/D / Left/Right: steer
@@ -35,8 +35,10 @@ Crashes play layered impact sounds with volume and tone based on collision stren
 
 Hard chassis impacts against trees, rocks, or terrain fill the damage meter beneath the speedometer. Damage depends on speed into the obstacle, so glancing hits are less costly. Small crashes accumulate; a full-speed head-on crash can wreck the car immediately. At 100% damage the car loses drive and brakes to a stop, and checkpoint progress and timing stop. Use Reset car, R, or Repair & restart to repair it and return to the start.
 
-Models are in `public/models`; gameplay and Three.js rendering are in `app/game.ts`, and the HUD is in `app/page.tsx`. Movement uses Rapier rigid-body physics at 120 Hz with interpolated rendering. The road is painted onto rolling terrain, so the driving surface has no overlapping road mesh. Four raycast wheels apply suspension, steering, braking, and grip at their individual contact points. Rear-wheel drive loses traction when the rear tires lift; raised front tires cannot steer the body. Progressive bump stops absorb hard landings. Nose-first landings load the front suspension first, then swing the rear wheels down into a second impact. The same forces produce compression and settling, without a scripted upward kick or forced leveling. The car keeps angular momentum in flight. Acceleration is 12 m/s² and top speed is 95 km/h, with gentler steering at high speed. Each tire needs loaded ground contact to exert force or leave a skid mark. After a jump, each tire regains grip over 0.2 seconds while suspension contact remains immediate, allowing a brief slide as the car settles. At speed, braking while turning reduces tire grip: the car slides in its original direction as the nose turns, leaving tire marks. Release the brake or countersteer to regain control.
+Models are in `public/models`; gameplay and Three.js rendering are in `app/game.ts`, and the HUD markup is in `index.html` with event bindings and status updates in `app/main.ts`. Movement uses Rapier rigid-body physics at 120 Hz with interpolated rendering. The road is painted onto rolling terrain, so the driving surface has no overlapping road mesh. Four raycast wheels apply suspension, steering, braking, and grip at their individual contact points. Rear-wheel drive loses traction when the rear tires lift; raised front tires cannot steer the body. Progressive bump stops absorb hard landings. Nose-first landings load the front suspension first, then swing the rear wheels down into a second impact. The same forces produce compression and settling, without a scripted upward kick or forced leveling. The car keeps angular momentum in flight. Acceleration is 12 m/s² and top speed is 95 km/h, with gentler steering at high speed. Each tire needs loaded ground contact to exert force or leave a skid mark. After a jump, each tire regains grip over 0.2 seconds while suspension contact remains immediate, allowing a brief slide as the car settles. At speed, braking while turning reduces tire grip: the car slides in its original direction as the nose turns, leaving tire marks. Release the brake or countersteer to regain control.
 
 Terrain and route generation are in `app/terrain.ts`; the Rapier world, vehicle, and tire forces are in `app/vehicle-physics.ts`. The physics engine runs locally in WebAssembly; no backend state is required.
 
-Deploy to AWS with `AWS_PROFILE=roventskij npm run deploy:s3`. This builds a static export, uploads the public files to the `papaya-drive-779045249836` S3 bucket in `eu-north-1`, and refreshes CloudFront distribution `E1XV070WW0P6T`. The bucket blocks public access; CloudFront serves the game over HTTPS using origin access control. Build the static files without deploying with `npm run build:static` (output: `dist/client/`).
+Deploy to AWS with `AWS_PROFILE=roventskij npm run deploy:s3`. This builds a static export, uploads the public files to the `papaya-drive-779045249836` S3 bucket in `eu-north-1`, and refreshes CloudFront distribution `E1XV070WW0P6T`. The bucket blocks public access; CloudFront serves the game over HTTPS using origin access control. Build the static files without deploying with `npm run build:static` (output: `dist/`).
+
+The HUD uses [Fredoka](https://fonts.google.com/specimen/Fredoka), bundled locally in `public/fonts` under the included SIL Open Font License.

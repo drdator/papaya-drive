@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Take a low-poly hatchback for a spin. Follow the forest loop, find eight golden checkpoints, and enjoy the drive."
+    />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link
+      rel="preload"
+      href="/fonts/fredoka-latin.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <link rel="stylesheet" href="/app/globals.css" />
+    <title>Papaya Drive — a little forest driving game</title>
+  </head>
+  <body>
+    <svg
+      class="icon-library"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+    >
+      <defs>
+        <symbol id="icon-sound" viewBox="0 0 24 24">
+          <path d="M11 5 6 9H3v6h3l5 4Z" />
+          <path
+            class="sound-waves"
+            d="M15 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14"
+          />
+          <path class="sound-slash" d="m16 9 5 6m0-6-5 6" />
+        </symbol>
+        <symbol id="icon-reset" viewBox="0 0 24 24">
+          <path d="M4 10a8 8 0 1 1 1 8M4 4v6h6" />
+        </symbol>
+        <symbol id="icon-pause" viewBox="0 0 24 24">
+          <path d="M8 5v14M16 5v14" />
+        </symbol>
+        <symbol id="icon-play" viewBox="0 0 24 24">
+          <path d="m8 5 11 7-11 7Z" />
+        </symbol>
+        <symbol id="icon-heart" viewBox="0 0 24 24">
+          <path d="M12 20 4 12C-2 5 7-1 12 6 17-1 26 5 20 12Z" />
+        </symbol>
+        <symbol id="icon-repair" viewBox="0 0 24 24">
+          <path
+            d="M14 4a6 6 0 0 0-7 8L3 17a3 3 0 0 0 4 4l5-5a6 6 0 0 0 8-7l-4 4-5-5Z"
+          />
+        </symbol>
+      </defs>
+    </svg>
+    <main class="game" aria-label="Papaya Drive car game">
+      <div class="viewport"></div>
+      <div class="hud">
+        <div class="topbar">
+          <div class="route">
+            <div class="trail-name">
+              Ridge trail
+              <span class="lap-badge">Lap <span id="lap">1</span></span>
+            </div>
+            <div class="trail-progress" aria-label="Checkpoint progress">
+              <div class="dots" aria-hidden="true">
+                <span class="current"></span><span></span><span></span
+                ><span></span> <span></span><span></span><span></span
+                ><span></span>
+              </div>
+              <strong id="checkpoints" aria-label="Checkpoints">0 / 8</strong>
+            </div>
+            <div class="timing">
+              <span id="time">0:00.0</span><span id="best">Best —</span>
+            </div>
+          </div>
+        </div>
+        <output id="loading" class="message">
+          <span class="message-token" aria-hidden="true"
+            ><svg class="icon"><use href="#icon-heart" /></svg
+          ></span>
+          <h1 id="loading-title">Packing the picnic…</h1>
+          <p id="loading-description">Loading your car and the forest.</p>
+          <button id="retry" hidden>Try again</button>
+        </output>
+        <output id="wreck" class="message wreck-message" hidden>
+          <span class="message-token" aria-hidden="true"
+            ><svg class="icon"><use href="#icon-repair" /></svg
+          ></span>
+          <h1 id="wreck-title">Car wrecked.</h1>
+          <p id="wreck-description">Too much damage to keep driving.</p>
+          <button id="repair">Repair &amp; restart</button>
+        </output>
+        <div id="paused" class="message" hidden>
+          <span class="message-token" aria-hidden="true"
+            ><svg class="icon"><use href="#icon-pause" /></svg
+          ></span>
+          <h1>A little breather.</h1>
+          <p>The forest can wait.</p>
+          <button id="resume">
+            <svg class="icon" aria-hidden="true"><use href="#icon-play" /></svg>
+            Keep cruising
+          </button>
+          <a
+            class="audio-credits"
+            href="/audio/credits.html"
+            target="_blank"
+            rel="noreferrer"
+            >Audio credits</a
+          >
+        </div>
+        <div id="hint" class="hint" hidden>
+          Follow the golden arches. Carry speed over the crests.
+        </div>
+        <div class="bottom-bar">
+          <div class="dashboard">
+            <div id="gear" class="gear"></div>
+            <div class="speed">
+              <svg class="speed-dial" viewBox="0 0 160 160" aria-hidden="true">
+                <circle
+                  class="dial-track"
+                  cx="80"
+                  cy="80"
+                  r="62"
+                  pathLength="100"
+                />
+                <circle
+                  id="speed-arc"
+                  class="dial-fill"
+                  cx="80"
+                  cy="80"
+                  r="62"
+                  pathLength="100"
+                />
+                <g class="dial-ticks">
+                  <path
+                    d="m42 118-4 4M26 80h-6m22-38-4-4m42-12v-6m38 22 4-4m12 42h6m-22 38 4 4"
+                  />
+                </g>
+              </svg>
+              <div class="speed-display">
+                <strong id="speed">00</strong><span>km/h</span>
+              </div>
+            </div>
+            <div class="damage">
+              <div class="damage-label">
+                <label for="car-damage"
+                  ><svg class="icon" aria-hidden="true">
+                    <use href="#icon-heart" />
+                  </svg>
+                  Damage</label
+                >
+                <span id="damage-label">0%</span>
+              </div>
+              <meter
+                id="car-damage"
+                min="0"
+                max="100"
+                low="40"
+                high="75"
+                optimum="0"
+                value="0"
+              ></meter>
+            </div>
+          </div>
+          <div class="actions">
+            <button
+              id="sound"
+              class="game-button"
+              aria-label="Mute sound"
+              aria-pressed="false"
+              data-tooltip="Sound on"
+            >
+              <svg class="icon" aria-hidden="true">
+                <use href="#icon-sound" />
+              </svg>
+            </button>
+            <button
+              id="reset"
+              class="game-button"
+              aria-label="Reset car"
+              data-tooltip="Reset car · R"
+            >
+              <svg class="icon" aria-hidden="true">
+                <use href="#icon-reset" />
+              </svg>
+            </button>
+            <button
+              id="pause"
+              class="game-button pause-button"
+              aria-label="Pause"
+              data-tooltip="Pause · Esc"
+            >
+              <svg class="icon" aria-hidden="true">
+                <use id="pause-icon" href="#icon-pause" />
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div class="touch-controls">
+          <div>
+            <button data-key="ArrowLeft" aria-label="Steer left">←</button>
+            <button data-key="ArrowRight" aria-label="Steer right">→</button>
+          </div>
+          <div>
+            <button data-key="ArrowDown" aria-label="Brake or reverse">
+              ↓
+            </button>
+            <button data-key="ArrowUp" aria-label="Accelerate">↑</button>
+          </div>
+        </div>
+      </div>
+    </main>
+    <script type="module" src="/app/main.ts"></script>
+  </body>
+</html>
