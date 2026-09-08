@@ -16,6 +16,8 @@ const initial: GameStatus = {
   airborne: false,
   skidding: false,
   damage: 0,
+  muted: false,
+  flooded: false,
 };
 function timeLabel(seconds: number) {
   return `${Math.floor(seconds / 60)}:${(seconds % 60).toFixed(1).padStart(4, '0')}`;
@@ -25,7 +27,7 @@ export default function Home() {
   const viewport = useRef<HTMLDivElement>(null);
   const game = useRef<GameControls | null>(null);
   const [status, setStatus] = useState(initial);
-  const wrecked = status.damage >= 100;
+  const wrecked = status.damage >= 100 || status.flooded;
   useEffect(() => {
     if (!viewport.current) return;
     game.current = createGame(viewport.current, setStatus);
@@ -81,11 +83,15 @@ export default function Home() {
           </output>
         )}
         {status.ready && wrecked && (
-          <output className="message">
-            <h1>Car wrecked.</h1>
-            <p>Too much damage to keep driving.</p>
+          <output className="message wreck-message">
+            <h1>{status.flooded ? 'Engine flooded.' : 'Car wrecked.'}</h1>
+            <p>
+              {status.flooded
+                ? 'The water reached the engine. Restart to get back on the island.'
+                : 'Too much damage to keep driving.'}
+            </p>
             <button onClick={() => game.current?.reset()}>
-              Repair & restart
+              {status.flooded ? 'Restart on shore' : 'Repair & restart'}
             </button>
           </output>
         )}
@@ -96,6 +102,14 @@ export default function Home() {
             <button onClick={() => game.current?.togglePause()}>
               Back to driving
             </button>
+            <a
+              className="audio-credits"
+              href="/audio/credits.html"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Audio credits
+            </a>
           </div>
         )}
         {status.ready && !status.started && !status.paused && (
@@ -115,7 +129,9 @@ export default function Home() {
             </div>
             <div className="gear">
               {wrecked
-                ? 'WRECKED'
+                ? status.flooded
+                  ? 'FLOODED'
+                  : 'WRECKED'
                 : status.airborne
                   ? '↗ AIRBORNE'
                   : status.skidding
@@ -142,6 +158,13 @@ export default function Home() {
           </div>
           <div>
             <div className="actions">
+              <button
+                onClick={() => game.current?.toggleMute()}
+                aria-label={status.muted ? 'Unmute sound' : 'Mute sound'}
+                aria-pressed={status.muted}
+              >
+                {status.muted ? 'Sound off' : 'Sound on'}
+              </button>
               <button onClick={() => game.current?.reset()}>↺ Reset car</button>
               <button onClick={() => game.current?.togglePause()}>
                 {status.paused ? '▶ Resume' : 'Ⅱ Pause'}

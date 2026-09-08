@@ -12,7 +12,7 @@ test -f dist/client/index.html
 
 # Upload assets before the entry point; retain old chunks for open game tabs.
 aws s3 sync dist/client/ "s3://$bucket/" \
-  --exclude '*' --include '_next/*' --include 'models/*.glb' \
+  --exclude '*' --include '_next/*' --include 'models/*.glb' --include 'audio/*' \
   --include 'favicon.svg' --include '404.html' \
   --cache-control 'public,max-age=300' --no-progress
 aws s3 cp dist/client/index.rsc "s3://$bucket/index.rsc" \

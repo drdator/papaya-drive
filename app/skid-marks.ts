@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { terrainHeight } from './terrain';
+import { terrainHeight } from './terrain.ts';
 
 export function createSkidMarks() {
   const capacity = 2048;
@@ -23,33 +23,35 @@ export function createSkidMarks() {
   );
   mesh.frustumCulled = false;
   const previous = [new THREE.Vector2(), new THREE.Vector2()];
-  let connected = false,
-    cursor = 0,
+  const connected = [false, false];
+  let cursor = 0,
     count = 0;
   return {
     mesh,
     reset() {
-      connected = false;
+      connected.fill(false);
       cursor = 0;
       count = 0;
       geometry.setDrawRange(0, 0);
     },
-    update(x: number, z: number, heading: number, skidding: boolean) {
-      if (!skidding) {
-        connected = false;
-        return;
-      }
-      const fx = Math.sin(heading),
-        fz = Math.cos(heading);
+    update(
+      tires: {
+        point: { x: number; y: number; z: number };
+        skidding: boolean;
+      }[],
+    ) {
       for (let tire = 0; tire < 2; tire++) {
-        const side = tire === 0 ? -0.84 : 0.84;
-        const px = x - fx * 1.12 + fz * side;
-        const pz = z - fz * 1.12 - fx * side;
+        if (!tires[tire].skidding) {
+          connected[tire] = false;
+          continue;
+        }
+        const px = tires[tire].point.x;
+        const pz = tires[tire].point.z;
         const last = previous[tire];
         const dx = px - last.x,
           dz = pz - last.y;
         const length = Math.hypot(dx, dz);
-        if (connected && length < 1) {
+        if (connected[tire] && length < 1) {
           if (length < 0.12) continue;
           const nx = (-dz / length) * 0.09,
             nz = (dx / length) * 0.09;
@@ -74,8 +76,8 @@ export function createSkidMarks() {
           positions.needsUpdate = true;
         }
         last.set(px, pz);
+        connected[tire] = true;
       }
-      connected = true;
     },
   };
 }
