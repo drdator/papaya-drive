@@ -70,7 +70,8 @@ export function createWaterEffects() {
       speed: number,
       verticalSpeed: number,
     ) {
-      if (dt <= 0) return;
+      if (dt <= 0) return 0;
+      let splashStrength = 0;
       cooldown = Math.max(0, cooldown - dt);
       lowest.set(0, Infinity, 0);
       for (const mount of wheelMounts) {
@@ -87,6 +88,7 @@ export function createWaterEffects() {
           0.15,
           1,
         );
+        splashStrength = strength;
         ripple(lowest.x, lowest.z, strength);
         ripple(lowest.x, lowest.z, strength * 0.8, 0.16);
         for (let i = 0; i < 12; i++) {
@@ -134,6 +136,7 @@ export function createWaterEffects() {
         drop.mesh.position.addScaledVector(drop.velocity, dt);
         drop.mesh.material.opacity = 0.75 * (1 - drop.age / 0.95);
       }
+      return splashStrength;
     },
   };
 }

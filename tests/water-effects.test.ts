@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { createWaterEffects } from '../app/water-effects.ts';
 import {
   mountainHeight,
+  forestTerrain,
   route,
   routeHeading,
   seaLevel,
@@ -22,7 +23,7 @@ await test('the mountain leaves the whole track and six-meter shoulders untouche
     const heading = routeHeading(i / 960);
     for (const side of [-6, -4, 0, 4, 6]) {
       assert.equal(
-        mountainHeight(
+        forestTerrain.mountainAt(
           p.x + Math.cos(heading) * side,
           p.z - Math.sin(heading) * side,
         ),
@@ -30,31 +31,43 @@ await test('the mountain leaves the whole track and six-meter shoulders untouche
       );
     }
   }
+  for (let i = 0; i < 16; i++) {
+    const angle = (i * Math.PI) / 8;
+    const x = Math.cos(angle) * 120,
+      z = Math.sin(angle) * 120;
+    assert.ok(
+      forestTerrain.heightAt(x, z) > 15,
+      'Mountain foothills replace the coast',
+    );
+    assert.equal(forestTerrain.coastAt(x, z), 0);
+  }
 });
 
 await test('water entry emits bounded effects that pause, fade, and reset without repeating at rest', () => {
   const effects = createWaterEffects();
   const car = new THREE.Group();
   car.position.set(100, seaLevel + 1, 0);
-  effects.update(1 / 60, car, 10, 0);
+  assert.equal(effects.update(1 / 60, car, 10, 0), 0);
   assert.ok(effects.group.children.every((mesh) => !mesh.visible));
   car.position.y = seaLevel - 0.1;
-  effects.update(1 / 60, car, 10, -1);
+  assert.equal(effects.update(1 / 60, car, 10, -1), 0.6);
   const visible = effects.group.children.filter((mesh) => mesh.visible);
   assert.ok(visible.length >= 9);
   const before = visible.map((mesh) => ({
     position: mesh.position.clone(),
     scale: mesh.scale.clone(),
   }));
-  effects.update(0, car, 0, 0);
+  assert.equal(effects.update(0, car, 0, 0), 0);
   visible.forEach((mesh, i) => {
     assert.deepEqual(mesh.position, before[i].position);
     assert.deepEqual(mesh.scale, before[i].scale);
   });
-  for (let i = 0; i < 180; i++) effects.update(1 / 60, car, 0, 0);
+  for (let i = 0; i < 180; i++)
+    assert.equal(effects.update(1 / 60, car, 0, 0), 0);
   assert.ok(effects.group.children.every((mesh) => !mesh.visible));
   const capacity = effects.group.children.length;
-  for (let i = 0; i < 600; i++) effects.update(1 / 60, car, 10, 0);
+  for (let i = 0; i < 600; i++)
+    assert.equal(effects.update(1 / 60, car, 10, 0), 0);
   assert.equal(effects.group.children.length, capacity);
   effects.reset();
   assert.ok(effects.group.children.every((mesh) => !mesh.visible));

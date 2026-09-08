@@ -4,12 +4,12 @@ import {
   advanceVehicleWater,
   createVehicleWater,
 } from '../app/vehicle-water.ts';
+import { seaLevel } from '../app/terrain.ts';
 import {
-  route,
-  routeHeading,
-  seaLevel,
-  terrainHeight,
-} from '../app/terrain.ts';
+  tropicalHeight as terrainHeight,
+  tropicalRoute,
+} from '../app/tropical-map.ts';
+const { route, routeHeading } = tropicalRoute;
 await test('the full track stays dry and the island drops into deep water on every side', () => {
   for (let i = 0; i < 480; i++) {
     const p = route(i / 480);

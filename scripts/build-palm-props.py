@@ -10,7 +10,7 @@ from pathlib import Path
 
 import bpy
 import bmesh
-from mathutils import Vector
+from mathutils import Vector, Matrix
 
 ROOT = Path(__file__).resolve().parents[1]
 bpy.ops.object.select_all(action='SELECT')
@@ -103,7 +103,7 @@ def rope(name, points, radius=.035):
         beam(name, a, b, radius, rope_mat, 5)
 
 
-def finish(name):
+def finish(name, pivot=None):
     bpy.ops.object.select_all(action='DESELECT')
     for obj in parts:
         obj.select_set(True)
@@ -111,6 +111,10 @@ def finish(name):
     bpy.ops.object.join()
     obj = bpy.context.object
     obj.name = name
+    if pivot is not None:
+        pose = Matrix.Translation(blender(pivot)) @ Matrix.Rotation(yaw, 4, 'Z')
+        obj.data.transform(pose.inverted() @ obj.matrix_world)
+        obj.matrix_world = pose
     parts.clear()
     return obj
 
@@ -153,6 +157,9 @@ hull_band('Inside hull', .55, .02, .89, .71, woods[1])
 mesh('Gunwale rim', [bp((x * s, .74, z * (.87 + .13 * s))) for s in [1, .89] for x, z in outline],
      [(i, (i + 1) % n, (i + 1) % n + n, i + n) for i in range(n)], cream)
 mesh('Hull bottom', [bp((x * .57, -.33, z * .944)) for x, z in outline], [tuple(range(n))], teal)
+# A complete inner sole covers the painted outer bottom at the bow and stern.
+mesh('Wooden inner sole', [bp((x * .55, .02, z * .9415)) for x, z in outline],
+     [tuple(range(n))], woods[1])
 for i in range(5):
     box('Floor board', bp(((i - 2) * .23, .035, -.15)), (.21, .08, 3.55), wood_random.choice(woods))
 for z in [-1.5, .35, 1.5]:
@@ -160,7 +167,10 @@ for z in [-1.5, .35, 1.5]:
 for x in [-.91, .91]:
     beam('Oar', bp((x, .85, -1.8)), bp((x * .8, .85, 1.15)), .045, woods[2])
     box('Oar blade', bp((x, .85, -1.7)), (.2, .07, .65), woods[1])
-finish('Moored_boat')
+boat = finish('Moored_boat', boat_origin)
+boat['water_hull_outline'] = outline
+boat['mooring_anchors'] = [world((1.32, deck + .4, z)) for z in [9, 13.25]]
+boat['mooring_points'] = [(-1.03, .74, -1.25), (-.72, .74, 1.8)]
 for post_z, hull_point in [(9, (-1.03, .74, -1.25)), (13.25, (-.72, .74, 1.8))]:
     end = bp(hull_point)
     rope('Mooring line', [(1.32, deck + .4, post_z),
@@ -211,7 +221,7 @@ for i, (x, z) in enumerate([(5.4, 16.5), (-3.2, 20)]):
     beam('Buoy shoulder', (x, -.25, z), (x, .12, z), .54, orange, 10, .2)
     beam('Marker pole', (x, .1, z), (x, 1.45, z), .035, woods[2], 6)
     mesh('Pennant', [(x, 1.43, z), (x + .57, 1.23, z), (x, 1.06, z)], [(0, 1, 2)], orange)
-    finish('Fishing_buoy_' + str(i + 1))
+    finish('Fishing_buoy_' + str(i + 1), (x, -.6, z))
 
 # A compact cabin yacht at anchor beyond the landing, turned slightly across it.
 landing_origin, landing_yaw = origin, yaw
@@ -274,7 +284,7 @@ for side in [-1, 1]:
         beam('Hanging fender', (side * 1.7, -.12, z), (side * 1.7, .55, z), .14, cream, 8)
 # An anchor rode descends from the bow into the sea.
 rope('Anchor rode', [(0, .91, 5.08), (0, -.8, 6.7), (0, -3, 7.6)], .028)
-finish('Offshore_yacht')
+finish('Offshore_yacht', (0, 0, 0))
 origin, yaw = landing_origin, landing_yaw
 
 bpy.ops.object.select_all(action='SELECT')
@@ -286,5 +296,5 @@ for screen in bpy.data.screens:
             area.spaces.active.region_3d.view_location = blender((0, 0, 7))
 bpy.ops.wm.save_as_mainfile(filepath=str(ROOT / 'assets/palm-cove-props.blend'))
 bpy.ops.export_scene.gltf(filepath=str(ROOT / 'public/models/props-palm-cove.glb'),
-                          export_format='GLB', use_selection=True, export_yup=True)
+                          export_format='GLB', use_selection=True, export_yup=True, export_extras=True)
 print('Fishing landing faces:', sum(len(o.data.polygons) for o in bpy.context.scene.objects if o.type == 'MESH'))

@@ -1,6 +1,8 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { terrainHeight } from './terrain.ts';
+import { createColliderMotion } from './moving-collider.ts';
+import { createVehicleBuoyancy } from './vehicle-buoyancy.ts';
 import {
   gravity,
   groundUnderCar,
@@ -87,6 +89,7 @@ export function createVehiclePhysics(
     return vehicle;
   }
   let vehicle = createController();
+  const buoyancy = createVehicleBuoyancy(body, mass);
   const position = new THREE.Vector3();
   const rotation = new THREE.Quaternion();
   const velocity = new THREE.Vector3();
@@ -156,14 +159,14 @@ export function createVehiclePhysics(
   return {
     state,
     body,
-    addSolid(mesh: THREE.Mesh) {
+    addSolid(mesh: THREE.Mesh, moving = false) {
       mesh.updateWorldMatrix(true, false);
       const geometry = mesh.geometry.clone().applyMatrix4(mesh.matrixWorld);
       const positions = geometry.getAttribute('position');
       const indices =
         geometry.index?.array ??
         Array.from({ length: positions.count }, (_, i) => i);
-      world.createCollider(
+      const collider = world.createCollider(
         RAPIER.ColliderDesc.trimesh(
           Float32Array.from(positions.array),
           Uint32Array.from(indices),
@@ -172,6 +175,7 @@ export function createVehiclePhysics(
           .setRestitution(0.08),
       );
       geometry.dispose();
+      return moving ? createColliderMotion(mesh, collider) : undefined;
     },
     addObstacle(obstacle: {
       x: number;
@@ -196,6 +200,7 @@ export function createVehiclePhysics(
       obstacleRadii.set(collider.handle, obstacle.radius);
     },
     reset(x: number, z: number, heading: number) {
+      buoyancy.reset();
       const surface = groundUnderCar(x, z, heading, heightAt);
       rotation.setFromEuler(
         euler.set(surface.pitch, heading, surface.bank, 'YXZ'),
@@ -231,6 +236,7 @@ export function createVehiclePhysics(
       readState();
     },
     teleport(target: THREE.Vector3, orientation: THREE.Quaternion) {
+      buoyancy.reset();
       body.setTranslation(target, true);
       body.setRotation(orientation, true);
       body.setLinvel({ x: 0, y: 0, z: 0 }, true);
@@ -257,8 +263,10 @@ export function createVehiclePhysics(
         z,
       });
     },
-    step(input: DriveInput, dt: number, waterDepth = 0) {
+    step(input: DriveInput, dt: number, waterSurface?: number) {
       readState();
+      const waterDepth =
+        waterSurface === undefined ? 0 : Math.max(0, waterSurface - position.y);
       previousVelocity.copy(velocity);
       previousAngularVelocity.copy(body.angvel());
       previousCenter.copy(body.worldCom());
@@ -336,17 +344,7 @@ export function createVehiclePhysics(
           wheel.attached ? wheel.grip * landingGrip : 0,
         );
       });
-      if (waterDepth > 0) {
-        const drag = mass * (Math.exp(-Math.min(4, waterDepth * 3) * dt) - 1);
-        body.applyImpulse(
-          {
-            x: velocity.x * drag,
-            y: velocity.y * drag * 0.35,
-            z: velocity.z * drag,
-          },
-          true,
-        );
-      }
+      buoyancy.update(waterSurface, dt);
       vehicle.updateVehicle(
         dt,
         undefined,

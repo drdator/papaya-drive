@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { shorelineSwellShader } from './water-waves.ts';
+import { boatWaterMaskShader, createBoatWaterMask } from './boat-water-mask.ts';
+import { ridgeGroundColor, ridgeMountainHeight } from './ridge-environment.ts';
 import { createMapRoute } from './map-route.ts';
 
 export const terrainSize = 300;
@@ -19,12 +21,6 @@ export function mountainHeight(x: number, z: number) {
   return Math.max(tall, short) + Math.min(tall, short) * 0.3;
 }
 
-function coastAmount(x: number, z: number) {
-  const angle = Math.atan2(z, x);
-  const radius = 86 + 4 * Math.sin(angle * 3) + 3 * Math.cos(angle * 5);
-  return THREE.MathUtils.smoothstep(Math.hypot(x, z), radius - 14, radius + 20);
-}
-
 // The first ridge sits on a fast straight; the rest forms broad hills and valleys.
 export function terrainHeight(x: number, z: number) {
   const hill = (
@@ -42,9 +38,7 @@ export function terrainHeight(x: number, z: number) {
     hill(34, -27, 17, 12, 6) +
     hill(-36, -19, 12, 16, 4.5) -
     hill(3, -10, 18, 13, 1.6);
-  return (
-    THREE.MathUtils.lerp(inland, -7, coastAmount(x, z)) + mountainHeight(x, z)
-  );
+  return inland + mountainHeight(x, z) + ridgeMountainHeight(x, z);
 }
 
 export const {
@@ -81,8 +75,8 @@ export type TerrainProfile = {
 };
 export const forestTerrain: TerrainProfile = {
   heightAt: terrainHeight,
-  mountainAt: mountainHeight,
-  coastAt: coastAmount,
+  mountainAt: (x, z) => mountainHeight(x, z) + ridgeMountainHeight(x, z),
+  coastAt: () => 0,
   samples: routeSamples,
   tropical: false,
 };
@@ -172,6 +166,15 @@ export function createTerrain(
         for (let channel = 0; channel < 3; channel++)
           pixels.data[offset + channel] +=
             mottling * (beach > 0.8 ? 4 : 8) - wetSand;
+      } else {
+        const channels = ridgeGroundColor(
+          (x / (base.width - 1) - 0.5) * terrainSize,
+          (y / (base.height - 1) - 0.5) * terrainSize,
+          mountain,
+        );
+        channels.forEach((value, i) => {
+          pixels.data[offset + i] = value;
+        });
       }
       pixels.data[offset + 3] = 255;
     }
@@ -257,6 +260,7 @@ export function createTerrain(
 export function createOcean(
   profile = forestTerrain,
   time = new THREE.Uniform(0),
+  boatMask = createBoatWaterMask(),
 ) {
   const geometry = new THREE.PlaneGeometry(800, 800, 200, 200);
   geometry.rotateX(-Math.PI / 2);
@@ -293,6 +297,9 @@ export function createOcean(
   // offshore ripples and the gameplay flooding threshold retain their tuning.
   ocean.material.onBeforeCompile = (shader) => {
     shader.uniforms.waterTime = time;
+    shader.uniforms.boatWaterMaskActive = boatMask.active;
+    shader.uniforms.waterWorldToBoat = boatMask.inverse;
+    shader.uniforms.boatHullPlanes = boatMask.planes;
     shader.uniforms.coastalMotion = new THREE.Uniform(profile.tropical ? 1 : 0);
     shader.vertexShader = shader.vertexShader
       .replace(
@@ -302,6 +309,7 @@ export function createOcean(
         uniform float coastalMotion;
         attribute float waveStrength;
         attribute float waterDepth;
+        varying vec3 waterWorldPosition;
         varying vec2 waterPosition;
         varying float waterMotion;
         ${shorelineSwellShader}`,
@@ -326,6 +334,7 @@ export function createOcean(
         '#include <begin_vertex>',
         `#include <begin_vertex>
         transformed.y += coastalHeight + smallWaterRipples(position.xz, waterDepth, waterTime);
+        waterWorldPosition = (modelMatrix * vec4(transformed, 1.0)).xyz;
         waterPosition = position.xz;
         waterMotion = waveStrength;`,
       );
@@ -334,12 +343,15 @@ export function createOcean(
         '#include <common>',
         `#include <common>
         uniform float waterTime;
+        varying vec3 waterWorldPosition;
         varying vec2 waterPosition;
-        varying float waterMotion;`,
+        varying float waterMotion;
+        ${boatWaterMaskShader}`,
       )
       .replace(
         '#include <color_fragment>',
         `#include <color_fragment>
+        if (insideBoatHull(waterWorldPosition)) discard;
         float ripple = sin(dot(waterPosition, vec2(0.58, 0.27)) - waterTime * 0.65)
           * sin(dot(waterPosition, vec2(-0.19, 0.43)) - waterTime * 0.38);
         diffuseColor.rgb *= 1.0 + 0.035 * ripple * waterMotion;`,

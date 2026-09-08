@@ -37,7 +37,7 @@ export type VehicleSoundInput = {
   grounded: boolean;
   skid: number;
   running: boolean;
-  // Keep the mix active for crash tails after the engine is wrecked.
+  // Keep crash and splash tails audible after the engine stops.
   active?: boolean;
   musicActive?: boolean;
 };
@@ -93,6 +93,7 @@ export function createVehicleAudio(musicTrack = 'cozy-drive.mp3') {
   const abort = new AbortController();
   let crashBuffer: AudioBuffer | undefined;
   let glassBuffer: AudioBuffer | undefined;
+  let splashBuffer: AudioBuffer | undefined;
   let lastCrash = -Infinity;
   const impacts = new Set<AudioBufferSourceNode>();
   const chimes = new Set<OscillatorNode>();
@@ -248,6 +249,65 @@ export function createVehicleAudio(musicTrack = 'cozy-drive.mp3') {
         oscillator.start(start);
         oscillator.stop(start + 0.4);
       });
+    },
+    splash(strength: number) {
+      if (
+        !graph ||
+        !context ||
+        muted ||
+        disposed ||
+        context.state !== 'running'
+      )
+        return;
+      if (impacts.size >= 12) return;
+      if (!splashBuffer) {
+        // A soft rush of water with a few rounded droplets, generated once locally.
+        const rate = context.sampleRate;
+        splashBuffer = context.createBuffer(1, Math.ceil(rate * 0.7), rate);
+        const samples = splashBuffer.getChannelData(0);
+        let low = 0;
+        for (let i = 0; i < samples.length; i++) {
+          const noise = Math.random() * 2 - 1;
+          low += (noise - low) * 0.12;
+          samples[i] = low * 1.6 + noise * 0.16;
+        }
+        for (let drop = 0; drop < 7; drop++) {
+          const start = Math.floor((0.04 + Math.random() * 0.32) * rate);
+          const frequency = 350 + Math.random() * 650;
+          for (let i = 0; i < rate * 0.13 && start + i < samples.length; i++) {
+            const t = i / rate;
+            samples[start + i] +=
+              0.18 *
+              Math.sin(2 * Math.PI * frequency * (t + 3 * t * t)) *
+              Math.exp(-t * 40) *
+              Math.min(1, t / 0.004);
+          }
+        }
+      }
+      const now = context.currentTime;
+      const intensity = clamp(strength, 0, 1);
+      const source = context.createBufferSource();
+      source.buffer = splashBuffer;
+      source.playbackRate.value = 1.1 - intensity * 0.2 + Math.random() * 0.08;
+      const filter = context.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.Q.value = 0.5;
+      filter.frequency.setValueAtTime(2800 + intensity * 1400, now);
+      filter.frequency.exponentialRampToValueAtTime(650, now + 0.6);
+      const gain = context.createGain();
+      gain.gain.setValueAtTime(0, now);
+      gain.gain.linearRampToValueAtTime(0.16 + intensity * 0.22, now + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.65);
+      source.connect(filter).connect(gain).connect(graph.master);
+      impacts.add(source);
+      source.onended = () => {
+        impacts.delete(source);
+        source.disconnect();
+        filter.disconnect();
+        gain.disconnect();
+      };
+      source.start();
+      source.stop(now + 0.7);
     },
     crash(speed: number, brokenGlass: boolean, pan: number) {
       if (

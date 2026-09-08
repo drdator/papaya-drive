@@ -4,6 +4,7 @@ import { seaLevel } from './terrain.ts';
 export function createFlyCamera(
   camera: THREE.PerspectiveCamera,
   heightAt: (x: number, z: number) => number,
+  constrain?: (from: THREE.Vector3, destination: THREE.Vector3) => void,
 ) {
   const carPosition = new THREE.Vector3();
   const carRotation = new THREE.Quaternion();
@@ -12,6 +13,7 @@ export function createFlyCamera(
   const up = new THREE.Vector3(0, 1, 0);
   const look = new THREE.Euler(0, 0, 0, 'YXZ');
   const movement = new THREE.Vector3();
+  const previousPosition = new THREE.Vector3();
   return {
     carPosition,
     carRotation,
@@ -29,6 +31,7 @@ export function createFlyCamera(
       camera.quaternion.setFromEuler(look);
     },
     update(dt: number, keys: ReadonlySet<string>) {
+      previousPosition.copy(camera.position);
       const forward =
         Number(keys.has('w') || keys.has('ArrowUp')) -
         Number(keys.has('s') || keys.has('ArrowDown'));
@@ -59,6 +62,15 @@ export function createFlyCamera(
       );
       camera.position.y += lift;
       carPosition.y += lift;
+      constrain?.(previousPosition, camera.position);
+      carPosition
+        .copy(carOffset)
+        .applyQuaternion(camera.quaternion)
+        .add(camera.position);
+      carPosition.y = Math.max(
+        carPosition.y,
+        heightAt(carPosition.x, carPosition.z) + 0.25,
+      );
       viewDirection.set(0, 0, -1).applyQuaternion(camera.quaternion);
       carRotation.setFromAxisAngle(
         up,

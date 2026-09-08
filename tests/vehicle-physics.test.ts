@@ -5,7 +5,8 @@ import {
   createVehiclePhysics,
   initializeVehiclePhysics,
 } from '../app/vehicle-physics.ts';
-import { createTerrainGeometry } from '../app/terrain.ts';
+import { createTerrainGeometry, seaLevel } from '../app/terrain.ts';
+import { tropicalHeight } from '../app/tropical-map.ts';
 import { gravity } from '../app/vehicle-ground.ts';
 import {
   advanceVehicleWater,
@@ -366,18 +367,63 @@ await test('crash contacts report the obstacle width and centered contact patch'
 });
 
 await test('driving down the real beach submerges and floods the engine', () => {
-  const car = createVehiclePhysics(terrain);
+  const beach = createTerrainGeometry(tropicalHeight);
+  const car = createVehiclePhysics(beach, tropicalHeight);
   try {
-    car.reset(68, 0, Math.PI / 2);
+    car.reset(68, 20, Math.PI / 2);
     const water = createVehicleWater();
     for (let i = 0; i < 1200 && !water.flooded; i++) {
-      const state = car.step(gas, dt, water.depth);
+      const state = car.step(gas, dt, seaLevel);
       advanceVehicleWater(water, state.position.y, state.pitch, state.bank, dt);
     }
     assert.equal(water.flooded, true);
     assert.ok(car.state.position.x > 75 && car.state.position.x < 105);
   } finally {
     car.dispose();
+    beach.dispose();
+  }
+});
+
+await test('water cushions an entry, briefly floats the car, then lets it settle on the seabed', () => {
+  const seabed = flat.clone().translate(0, -10, 0);
+  const car = createVehiclePhysics(seabed, () => -10);
+  try {
+    for (const pitch of [0, 1.2, Math.PI]) {
+      // Reusing the submerged car also checks that a new flight drop restores buoyancy.
+      car.teleport(
+        new THREE.Vector3(0, 1, 0),
+        new THREE.Quaternion().setFromEuler(new THREE.Euler(pitch, 0, 0)),
+      );
+      car.body.setLinvel({ x: 4, y: -8, z: 0 }, true);
+      for (let i = 0; i < 240; i++) car.step(idle, dt, seaLevel);
+      const center = car.body.worldCom();
+      assert.ok(
+        center.y > seaLevel - 2 && center.y < seaLevel + 0.5,
+        'The chassis returns near the surface after the initial plunge',
+      );
+      assert.ok(
+        car.state.velocity.y > -0.5,
+        'Buoyancy arrests the fall before the seabed',
+      );
+      assert.ok(
+        Math.abs(car.state.velocity.x) < 1,
+        'Water slows forward motion',
+      );
+      for (let i = 0; i < 360; i++) car.step(idle, dt, seaLevel);
+      assert.ok(
+        car.state.position.y < -3 && car.state.velocity.y < -2,
+        'Lost buoyancy lets the flooded car sink',
+      );
+      for (let i = 0; i < 480; i++) car.step(idle, dt, seaLevel);
+      assert.ok(car.body.worldCom().y < -8.5, 'The car reaches the bottom');
+      assert.ok(
+        Math.abs(car.state.velocity.y) < 0.1,
+        'The car rests on the seabed',
+      );
+    }
+  } finally {
+    car.dispose();
+    seabed.dispose();
   }
 });
 

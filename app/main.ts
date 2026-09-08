@@ -196,7 +196,7 @@ for (const button of document.querySelectorAll<HTMLButtonElement>(
     'click',
     () => {
       const next = button.dataset.map;
-      if (next !== 'ridge' && next !== 'tropical') return;
+      if (next !== 'ridge' && next !== 'tropical' && next !== 'city') return;
       if (next !== activeMap) {
         const muted = latestStatus?.muted;
         resumeAfterMenu = false;

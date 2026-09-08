@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="Take a low-poly hatchback through woodland hills or a tropical island. Find eight golden checkpoints and enjoy the drive."
+      content="Take a low-poly hatchback through mountain valleys, a tropical island, or colorful city streets. Find eight golden checkpoints and enjoy the drive."
     />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link
@@ -16,7 +16,7 @@
       crossorigin
     />
     <link rel="stylesheet" href="/app/globals.css" />
-    <title>Papaya Drive — island driving</title>
+    <title>Papaya Drive — scenic driving</title>
   </head>
   <body>
     <svg
@@ -126,7 +126,7 @@
             ><svg class="icon"><use href="#icon-pause" /></svg
           ></span>
           <h1>A little breather.</h1>
-          <p>The island can wait.</p>
+          <p>The trail can wait.</p>
           <button id="resume">
             <svg class="icon" aria-hidden="true"><use href="#icon-play" /></svg>
             Keep cruising
@@ -260,11 +260,15 @@
       <div class="map-options">
         <button data-map="ridge" aria-pressed="true">
           <strong>Ridge trail</strong>
-          <span>Woodland hills &amp; winding climbs</span>
+          <span>Mountain valleys &amp; winding climbs</span>
         </button>
         <button data-map="tropical" aria-pressed="false">
           <strong>Palm cove</strong>
           <span>Beach loop &amp; a towering rock arch</span>
+        </button>
+        <button data-map="city" aria-pressed="false">
+          <strong>Papaya city</strong>
+          <span>Winding streets &amp; hillside neighborhoods</span>
         </button>
       </div>
       <form method="dialog">
