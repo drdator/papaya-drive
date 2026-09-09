@@ -11,7 +11,13 @@ import { createVehicleWater, advanceVehicleWater } from './vehicle-water';
 import { createWaterEffects } from './water-effects';
 import { waterSurfaceOffset } from './water-waves';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { createTerrain, createOcean, seaLevel } from './terrain';
+import {
+  createTerrain,
+  createOcean,
+  seaLevel,
+  ridgeBaseHeight,
+  terrainHeight as ridgeGroundHeight,
+} from './terrain';
 import { groundUnderCar, wheelMounts } from './vehicle-ground';
 import { maps, type MapId } from './maps';
 import { createFlyCamera } from './fly-camera';
@@ -20,6 +26,13 @@ import { createBoatWaterMask } from './boat-water-mask';
 import { createCameraCollision } from './camera-collision';
 import { createTropicalSurf } from './tropical-map';
 import { createRidgeBackdrop } from './ridge-environment';
+import {
+  createRidgeRiver,
+  riverDistance,
+  riverLevel,
+  bridge,
+  bridgeCoordinates,
+} from './ridge-river';
 import { createCityGround } from './city-map';
 import { createTropicalScenery } from './tropical-scenery';
 
@@ -145,6 +158,20 @@ export function createGame(
 
   const waterTime = new THREE.Uniform(0);
   const boatWaterMask = createBoatWaterMask();
+  function waterSurfaceAt(x: number, z: number) {
+    if (tropical)
+      return (
+        seaLevel +
+        waterSurfaceOffset(
+          x,
+          z,
+          seaLevel - terrainHeight(x, z),
+          waterTime.value,
+        )
+      );
+    if (mapId === 'ridge' && riverDistance(x, z) < 0) return riverLevel(z);
+    return undefined;
+  }
   const ground = city
     ? createCityGround()
     : createTerrain(map.terrain, waterTime);
@@ -152,6 +179,11 @@ export function createGame(
   if (mapId === 'ridge') mountain.add(createRidgeBackdrop(terrainHeight));
   scene.add(mountain);
   scene.add(ground);
+  const river =
+    mapId === 'ridge'
+      ? createRidgeRiver(ridgeBaseHeight, ridgeGroundHeight, waterTime)
+      : undefined;
+  if (river) scene.add(river.group);
   if (tropical) scene.add(createOcean(map.terrain, waterTime, boatWaterMask));
   const surf = tropical ? createTropicalSurf(waterTime) : undefined;
   if (surf) scene.add(surf);
@@ -172,6 +204,13 @@ export function createGame(
     for (const side of [-1, 1]) {
       const x = p.x + Math.cos(heading) * side * 4.2;
       const z = p.z - Math.sin(heading) * side * 4.2;
+      const bridgePosition = bridgeCoordinates(x, z);
+      if (
+        river &&
+        Math.abs(bridgePosition.along) < 11 &&
+        Math.abs(bridgePosition.across) < 6
+      )
+        continue;
       const post = new THREE.Mesh(postGeometry, postMaterial);
       post.position.set(x, terrainHeight(x, z) + 0.325, z);
       post.castShadow = true;
@@ -207,8 +246,13 @@ export function createGame(
   const gatePositions = Array.from({ length: gateCount }, (_, i) =>
     route((i + 1) / gateCount),
   );
+  if (river)
+    gatePositions[0].set(bridge.x, terrainHeight(bridge.x, bridge.z), bridge.z);
   function placeGate() {
-    const heading = routeHeading((status.gate + 1) / gateCount);
+    const heading =
+      river && status.gate === 0
+        ? Math.PI / 2 + bridge.angle
+        : routeHeading((status.gate + 1) / gateCount);
     const p = gatePositions[status.gate];
     const surface = groundUnderCar(p.x, p.z, heading, terrainHeight);
     checkpoint.position.set(p.x, surface.height, p.z);
@@ -626,6 +670,12 @@ export function createGame(
       cameraCollision = createCameraCollision();
       cameraCollision.add(ground);
       cameraCollision.add(mountain);
+      if (river) {
+        cameraCollision.add(river.solids);
+        river.solids.traverse((object) => {
+          if (object instanceof THREE.Mesh) physics!.addSolid(object);
+        });
+      }
       mountain.traverse((object) => {
         if (object instanceof THREE.Mesh) physics!.addSolid(object);
       });
@@ -713,6 +763,7 @@ export function createGame(
           const x = (random() - 0.5) * spread,
             z = (random() - 0.5) * spread;
           if (distanceToRoad(x, z) < 6.4) continue;
+          if (river && riverDistance(x, z) < 2.5) continue;
           if (Math.hypot(x - start.x, z - start.z) < 8) continue;
           const surface = terrainHeight(x, z);
           if (surface < seaLevel + 1.2) continue;
@@ -771,15 +822,7 @@ export function createGame(
         Number(keys.has('d') || keys.has('ArrowRight'));
     if (gas || reverse) status.started = true;
     if (status.started && !wrecked) status.time += dt;
-    const waterSurface = tropical
-      ? seaLevel +
-        waterSurfaceOffset(
-          position.x,
-          position.z,
-          seaLevel - terrainHeight(position.x, position.z),
-          waterTime.value,
-        )
-      : undefined;
+    const waterSurface = waterSurfaceAt(position.x, position.z);
     const state = physics.step({ gas, reverse, brake, turn }, dt, waterSurface);
     readPhysics();
     const strongestImpact = state.impact.speed;
@@ -824,8 +867,14 @@ export function createGame(
     crashVisuals?.update(dt);
     status.speed =
       Math.hypot(motion.x, motion.z) * (state.speed < -0.1 ? -1 : 1);
-    if (tropical)
-      advanceVehicleWater(water, position.y, vertical.pitch, vertical.bank, dt);
+    advanceVehicleWater(
+      water,
+      position.y,
+      vertical.pitch,
+      vertical.bank,
+      dt,
+      tropical ? seaLevel : (waterSurface ?? -Infinity),
+    );
     status.flooded = water.flooded;
     status.airborne = !state.grounded;
     const dry = water.depth < 0.1 && !status.flooded;
@@ -843,6 +892,8 @@ export function createGame(
       status.damage < 100 &&
       !status.flooded &&
       Math.hypot(position.x - gate.x, position.z - gate.z) < 3.3 &&
+      // The bridge checkpoint must be crossed on the deck, not in the river below.
+      (!river || status.gate !== 0 || position.y > gate.y - 0.5) &&
       Math.abs(position.y - gate.y) < 5
     ) {
       audio.checkpoint();
@@ -929,10 +980,11 @@ export function createGame(
     const alpha = accumulator / step;
     renderCar(alpha);
     const splashStrength = waterEffects.update(
-      driving && tropical ? dt : 0,
+      driving ? dt : 0,
       car,
       Math.abs(status.speed),
       vertical.velocity,
+      waterSurfaceAt(car.position.x, car.position.z) ?? -Infinity,
     );
     if (splashStrength > 0) audio.splash(splashStrength);
     const gas = keys.has('w') || keys.has('ArrowUp');

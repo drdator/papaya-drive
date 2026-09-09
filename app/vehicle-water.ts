@@ -10,11 +10,12 @@ export function advanceVehicleWater(
   pitch: number,
   bank: number,
   dt: number,
+  surface = seaLevel,
 ) {
-  water.depth = Math.max(0, seaLevel - height);
+  water.depth = Math.max(0, surface - height);
   // The intake sits near the front of the engine bay, above the wheel hubs.
   const intakeHeight =
     height + 0.82 * Math.cos(pitch) * Math.cos(bank) - 1.15 * Math.sin(pitch);
-  water.exposure = intakeHeight < seaLevel ? water.exposure + dt : 0;
+  water.exposure = intakeHeight < surface ? water.exposure + dt : 0;
   if (water.exposure >= 0.2) water.flooded = true;
 }

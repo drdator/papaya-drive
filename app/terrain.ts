@@ -3,6 +3,15 @@ import { shorelineSwellShader } from './water-waves.ts';
 import { boatWaterMaskShader, createBoatWaterMask } from './boat-water-mask.ts';
 import { ridgeGroundColor, ridgeMountainHeight } from './ridge-environment.ts';
 import { createMapRoute } from './map-route.ts';
+import {
+  carveRiver,
+  riverDistance,
+  bridge,
+  bridgeCoordinates,
+  bridgePoint,
+  bridgeHeight,
+  bridgeApproach,
+} from './ridge-river.ts';
 
 export const terrainSize = 300;
 export const terrainSegments = 240;
@@ -22,7 +31,7 @@ export function mountainHeight(x: number, z: number) {
 }
 
 // The first ridge sits on a fast straight; the rest forms broad hills and valleys.
-export function terrainHeight(x: number, z: number) {
+export function ridgeBaseHeight(x: number, z: number) {
   const hill = (
     cx: number,
     cz: number,
@@ -41,6 +50,34 @@ export function terrainHeight(x: number, z: number) {
   return inland + mountainHeight(x, z) + ridgeMountainHeight(x, z);
 }
 
+export function terrainHeight(x: number, z: number) {
+  const height = carveRiver(x, z, ridgeBaseHeight(x, z));
+  const { along, across } = bridgeCoordinates(x, z);
+  return Math.abs(along) >= bridge.halfLength
+    ? bridgeApproach(x, z, height, ridgeBaseHeight)
+    : Math.min(
+        height,
+        THREE.MathUtils.lerp(
+          height,
+          bridgeHeight(along, ridgeBaseHeight) - 0.05,
+          1 -
+            THREE.MathUtils.smoothstep(
+              Math.abs(across),
+              bridge.halfWidth + 0.3,
+              7,
+            ),
+        ),
+      );
+}
+
+export function ridgeDrivingHeight(x: number, z: number) {
+  const { along, across } = bridgeCoordinates(x, z);
+  return Math.abs(along) <= bridge.halfLength &&
+    Math.abs(across) <= bridge.halfWidth
+    ? Math.max(terrainHeight(x, z), bridgeHeight(along, ridgeBaseHeight))
+    : terrainHeight(x, z);
+}
+
 export const {
   route,
   routeHeading,
@@ -51,8 +88,10 @@ export const {
   [
     [-32, 30],
     [-12, 30],
-    [12, 30],
-    [35, 25],
+    ...[-17, -10, 0, 10, 17].map((along) => {
+      const p = bridgePoint(along, 0);
+      return [p.x, p.z];
+    }),
     [48, 5],
     [30, -9],
     [42, -34],
@@ -63,18 +102,20 @@ export const {
     [-36, 2],
     [-51, 30],
   ],
-  terrainHeight,
+  ridgeDrivingHeight,
 );
 
 export type TerrainProfile = {
   heightAt: (x: number, z: number) => number;
+  groundAt?: (x: number, z: number) => number;
   mountainAt: (x: number, z: number) => number;
   coastAt: (x: number, z: number) => number;
   samples: THREE.Vector3[];
   tropical: boolean;
 };
 export const forestTerrain: TerrainProfile = {
-  heightAt: terrainHeight,
+  heightAt: ridgeDrivingHeight,
+  groundAt: terrainHeight,
   mountainAt: (x, z) => mountainHeight(x, z) + ridgeMountainHeight(x, z),
   coastAt: () => 0,
   samples: routeSamples,
@@ -100,7 +141,7 @@ export function createTerrain(
   profile = forestTerrain,
   time = new THREE.Uniform(0),
 ) {
-  const geometry = createTerrainGeometry(profile.heightAt);
+  const geometry = createTerrainGeometry(profile.groundAt ?? profile.heightAt);
 
   // Painting the road on the terrain makes it follow every hill without overlapping meshes.
   const canvas = document.createElement('canvas');
@@ -173,7 +214,21 @@ export function createTerrain(
           mountain,
         );
         channels.forEach((value, i) => {
-          pixels.data[offset + i] = value;
+          const bank =
+            1 -
+            THREE.MathUtils.smoothstep(
+              riverDistance(
+                (x / (base.width - 1) - 0.5) * terrainSize,
+                (y / (base.height - 1) - 0.5) * terrainSize,
+              ),
+              0.3,
+              2.8,
+            );
+          pixels.data[offset + i] = THREE.MathUtils.lerp(
+            value,
+            [156, 152, 113][i],
+            bank,
+          );
         });
       }
       pixels.data[offset + 3] = 255;
@@ -196,6 +251,52 @@ export function createTerrain(
   context.strokeStyle = profile.tropical ? '#f5dfb3' : '#d9c49a';
   context.lineWidth = roadWidth * pixelsPerMeter;
   context.stroke();
+  if (profile === forestTerrain) {
+    // Widen the approaches partway toward the deck width, then taper into the trail.
+    // Use the same route normals as the driving line so the curved approaches agree.
+    const edges = profile.samples.slice(0, -1).map((p, i, samples) => {
+      const before = samples[(i + samples.length - 1) % samples.length];
+      const after = samples[(i + 1) % samples.length];
+      const tangent = after.clone().sub(before).normalize();
+      const { along, across } = bridgeCoordinates(p.x, p.z);
+      const blend =
+        Math.abs(across) < 8
+          ? 1 -
+            THREE.MathUtils.smoothstep(
+              Math.abs(along),
+              bridge.halfLength + 1,
+              bridge.halfLength + 9,
+            )
+          : 0;
+      return {
+        p,
+        tangent,
+        width: THREE.MathUtils.lerp(
+          roadWidth / 2,
+          bridge.halfWidth - 0.45,
+          blend,
+        ),
+      };
+    });
+    for (const shoulder of [0.4, 0]) {
+      context.beginPath();
+      for (const side of [-1, 1]) {
+        edges.forEach(({ p, tangent, width }, i) => {
+          const x =
+            (p.x + tangent.z * (width + shoulder) * side + terrainSize / 2) *
+            pixelsPerMeter;
+          const z =
+            (p.z - tangent.x * (width + shoulder) * side + terrainSize / 2) *
+            pixelsPerMeter;
+          if (i === 0) context.moveTo(x, z);
+          else context.lineTo(x, z);
+        });
+        context.closePath();
+      }
+      context.fillStyle = shoulder ? '#a7af79' : '#d9c49a';
+      context.fill('evenodd');
+    }
+  }
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.anisotropy = 8;

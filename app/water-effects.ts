@@ -46,11 +46,17 @@ export function createWaterEffects() {
   const contact = new THREE.Vector3();
   const lowest = new THREE.Vector3();
 
-  function ripple(x: number, z: number, strength: number, delay = 0) {
+  function ripple(
+    x: number,
+    z: number,
+    strength: number,
+    surface: number,
+    delay = 0,
+  ) {
     const ring = rings[ringCursor++ % rings.length];
     ring.age = -delay;
     ring.strength = strength;
-    ring.mesh.position.set(x, seaLevel + 0.035, z);
+    ring.mesh.position.set(x, surface + 0.035, z);
     ring.mesh.visible = false;
   }
 
@@ -69,6 +75,7 @@ export function createWaterEffects() {
       car: THREE.Object3D,
       speed: number,
       verticalSpeed: number,
+      surface = seaLevel,
     ) {
       if (dt <= 0) return 0;
       let splashStrength = 0;
@@ -81,7 +88,7 @@ export function createWaterEffects() {
           .add(car.position);
         if (contact.y < lowest.y) lowest.copy(contact);
       }
-      const touching = lowest.y < seaLevel - 0.02;
+      const touching = lowest.y < surface - 0.02;
       if (touching && !wet && cooldown === 0) {
         const strength = THREE.MathUtils.clamp(
           (speed + Math.max(0, -verticalSpeed) * 2) / 20,
@@ -89,14 +96,14 @@ export function createWaterEffects() {
           1,
         );
         splashStrength = strength;
-        ripple(lowest.x, lowest.z, strength);
-        ripple(lowest.x, lowest.z, strength * 0.8, 0.16);
+        ripple(lowest.x, lowest.z, strength, surface);
+        ripple(lowest.x, lowest.z, strength * 0.8, surface, 0.16);
         for (let i = 0; i < 12; i++) {
           const drop = drops[dropCursor++ % drops.length];
           const angle = (i / 12) * Math.PI * 2;
           const spread = 1 + strength * 1.8;
           drop.age = 0;
-          drop.mesh.position.set(lowest.x, seaLevel + 0.06, lowest.z);
+          drop.mesh.position.set(lowest.x, surface + 0.06, lowest.z);
           drop.velocity.set(
             Math.cos(angle) * spread,
             1.5 + strength * 2.3,
@@ -107,15 +114,15 @@ export function createWaterEffects() {
       } else if (
         touching &&
         speed > 2 &&
-        car.position.y > seaLevel - 1.4 &&
+        car.position.y > surface - 1.4 &&
         cooldown === 0
       ) {
-        ripple(car.position.x, car.position.z, 0.2);
+        ripple(car.position.x, car.position.z, 0.2, surface);
         cooldown = 0.45;
       }
       // Hysteresis prevents suspension bobbing at the surface from repeating splashes.
       if (touching) wet = true;
-      else if (lowest.y > seaLevel + 0.1) wet = false;
+      else if (lowest.y > surface + 0.1) wet = false;
       for (const ring of rings) {
         ring.age += dt;
         ring.mesh.visible = ring.age >= 0 && ring.age < 2;
@@ -130,7 +137,7 @@ export function createWaterEffects() {
       }
       for (const drop of drops) {
         drop.age += dt;
-        drop.mesh.visible = drop.age < 0.95 && drop.mesh.position.y > seaLevel;
+        drop.mesh.visible = drop.age < 0.95 && drop.mesh.position.y > surface;
         if (!drop.mesh.visible) continue;
         drop.velocity.y -= 8 * dt;
         drop.mesh.position.addScaledVector(drop.velocity, dt);
