@@ -25,7 +25,10 @@ import { createFloatingBoats } from './floating-boats';
 import { createBoatWaterMask } from './boat-water-mask';
 import { createCameraCollision } from './camera-collision';
 import { createTropicalSurf } from './tropical-map';
-import { createRidgeBackdrop } from './ridge-environment';
+import {
+  createRidgeBackdrop,
+  createCentralRockDetails,
+} from './ridge-environment';
 import {
   createRidgeRiver,
   riverDistance,
@@ -176,7 +179,11 @@ export function createGame(
     ? createCityGround()
     : createTerrain(map.terrain, waterTime);
   const mountain = new THREE.Group();
-  if (mapId === 'ridge') mountain.add(createRidgeBackdrop(terrainHeight));
+  if (mapId === 'ridge')
+    mountain.add(
+      createRidgeBackdrop(terrainHeight),
+      createCentralRockDetails(terrainHeight, distanceToRoad),
+    );
   scene.add(mountain);
   scene.add(ground);
   const river =
@@ -482,6 +489,7 @@ export function createGame(
     stopOrbit();
     keys.clear();
     status.flying = !status.flying;
+    physics?.body.setEnabled(!status.flying);
     if (status.flying) {
       status.paused = false;
       flyCamera.enter(car.position);
@@ -690,8 +698,24 @@ export function createGame(
           );
           scene.add(floatingBoats.ropes);
         }
+        const floatingProps = new Set(
+          props.children.filter(
+            (child) =>
+              child.name.startsWith('Landing_crate_') ||
+              child.name === 'Landing_barrel',
+          ),
+        );
+        for (const prop of floatingProps)
+          physics.addFloatingProp(
+            prop,
+            waterSurfaceAt,
+            prop.name === 'Landing_barrel' ? 'convex' : 'cuboid',
+          );
         for (const child of props.children)
-          cameraCollision.add(child, floatingBoats?.objects.includes(child));
+          cameraCollision.add(
+            child,
+            floatingProps.has(child) || floatingBoats?.objects.includes(child),
+          );
         props.traverse((object) => {
           if (
             object instanceof THREE.Mesh &&
@@ -701,8 +725,13 @@ export function createGame(
               object.name.startsWith('City_streets'))
           ) {
             let root: THREE.Object3D | null = object;
-            while (root && !floatingBoats?.objects.includes(root))
+            while (
+              root &&
+              !floatingProps.has(root) &&
+              !floatingBoats?.objects.includes(root)
+            )
               root = root.parent;
+            if (root && floatingProps.has(root)) return;
             const update = physics!.addSolid(object, root !== null);
             if (update) movingProps.push(update);
           }
@@ -778,6 +807,8 @@ export function createGame(
           model.rotation.y = random() * Math.PI * 2;
           if (isTree && mountainHeight(x, z) > (Math.hypot(x, z) > 68 ? 24 : 6))
             continue;
+          if (!isTree && Math.hypot(x, z) < 40 && mountainHeight(x, z) > 4)
+            continue;
           scene.add(model);
           cameraCollision.add(model);
           physics.addObstacle({
@@ -788,6 +819,8 @@ export function createGame(
             top: surface + (isTree ? 3.5 : index === 5 ? 0.6 : 1.4) * scale,
           });
         }
+      physics.settleFloatingProps();
+      cameraCollision.update();
       cameraCollision.build();
       status.ready = true;
       reset();
@@ -965,19 +998,21 @@ export function createGame(
       if (floatingBoats) {
         floatingBoats.update(waterTime.value);
         movingProps.forEach((update) => update());
-        cameraCollision?.update();
       }
     }
     const driving = status.ready && !status.paused && !status.flying;
-    if (driving) {
+    if (status.ready && !status.paused) {
       accumulator += dt;
       while (accumulator >= step) {
-        simulate(step);
+        if (driving) simulate(step);
+        else physics?.stepScenery(step);
         accumulator -= step;
       }
     }
     // Keep the remainder while paused so the visible car cannot jump backward.
     const alpha = accumulator / step;
+    physics?.renderFloatingProps(alpha);
+    if (!status.paused && floatingBoats) cameraCollision?.update();
     renderCar(alpha);
     const splashStrength = waterEffects.update(
       driving ? dt : 0,

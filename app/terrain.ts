@@ -1,7 +1,12 @@
 import * as THREE from 'three';
 import { shorelineSwellShader } from './water-waves.ts';
 import { boatWaterMaskShader, createBoatWaterMask } from './boat-water-mask.ts';
-import { ridgeGroundColor, ridgeMountainHeight } from './ridge-environment.ts';
+import {
+  ridgeGroundColor,
+  ridgeMountainHeight,
+  ridgeCentralHeight as mountainHeight,
+} from './ridge-environment.ts';
+export { ridgeCentralHeight as mountainHeight } from './ridge-environment.ts';
 import { createMapRoute } from './map-route.ts';
 import {
   carveRiver,
@@ -17,18 +22,6 @@ export const terrainSize = 300;
 export const terrainSegments = 240;
 export const roadWidth = 7.6;
 export const seaLevel = -0.6;
-
-export function mountainHeight(x: number, z: number) {
-  // A finite footprint leaves the road and its shoulders completely untouched.
-  const dx = x + 15,
-    dz = z + 5;
-  const radius = Math.hypot((dx + 0.22 * dz) / 11.5, dz / 10);
-  const skew = 1 + 0.2 * Math.tanh((dx - dz) / 6);
-  // An offset, rounded summit with a longer flank on one side.
-  const tall = 21.5 * Math.max(0, 1 - radius ** 2 * skew) ** 2.5;
-  const short = 14.5 * Math.max(0, 1 - Math.hypot(x + 8, z - 1) / 10) ** 1.4;
-  return Math.max(tall, short) + Math.min(tall, short) * 0.3;
-}
 
 // The first ridge sits on a fast straight; the rest forms broad hills and valleys.
 export function ridgeBaseHeight(x: number, z: number) {

@@ -31,6 +31,8 @@ def material(name, color):
 
 woods = [material('Sun-worn timber ' + str(i), c) for i, c in enumerate(
     ['b39a76', 'b59c78', 'b19975', 'b49b77'])]
+crate_woods = [material('Darker crate timber ' + str(i), c) for i, c in enumerate(
+    ['a58d6c', 'a78f6e', 'a38c6b', 'a68e6d'])]
 wood_random = random.Random(812)
 dark = material('End grain and iron hoops', '58594e')
 teal = material('Faded lagoon paint', '488b82')
@@ -122,8 +124,44 @@ def finish(name, pivot=None):
 # Uneven individual planks, with visible gaps and supporting beams underneath.
 deck = 1.43
 for i in range(28):
-    box('Deck plank', (.025 * math.sin(i * 5), deck, i * .49),
-        (2.65 + .08 * math.sin(i * 2), .17, .455), wood_random.choice(woods), .008 * math.sin(i * 3))
+    center = (.025 * math.sin(i * 5), deck, i * .49)
+    width = 2.65 + .08 * math.sin(i * 2)
+    timber = wood_random.choice(woods)
+    turn = .008 * math.sin(i * 3)
+    if i == 20:
+        # A deep, splintered split at the boat-side end.
+        end = width / 2
+        outline = [(-end, -.2275), (end, -.2275),
+                   (end - .14, -.16), (end - .68, -.055),
+                   (end - .38, -.005), (end - .72, .09),
+                   (end - .25, .15), (end - .12, .2275), (-end, .2275)]
+        count = len(outline)
+        points = [(center[0] + x * math.cos(turn) + z * math.sin(turn),
+                   deck + y,
+                   center[2] - x * math.sin(turn) + z * math.cos(turn))
+                  for y in [-.085, .085] for x, z in outline]
+        faces = [tuple(range(count - 1, -1, -1)), tuple(range(count, count * 2))]
+        faces += [(j, (j + 1) % count, (j + 1) % count + count, j + count)
+                  for j in range(count)]
+        mesh('Splintered deck plank', points, faces, timber)
+    elif i == 13:
+        # A straight, loose board tilted down at its boat-side end.
+        tilt = math.radians(4)
+        points = []
+        for x in [-width / 2, width / 2]:
+            for y, z in [(-.085, -.2275), (-.085, .2275),
+                         (.085, .2275), (.085, -.2275)]:
+                offset = x + width / 2
+                tilted_x = -width / 2 + offset * math.cos(tilt) + y * math.sin(tilt)
+                tilted_y = y * math.cos(tilt) - offset * math.sin(tilt)
+                points.append((center[0] + tilted_x * math.cos(turn) + z * math.sin(turn),
+                               deck + tilted_y,
+                               center[2] - tilted_x * math.sin(turn) + z * math.cos(turn)))
+        faces = [(3, 2, 1, 0), (4, 5, 6, 7)]
+        faces += [(j, (j + 1) % 4, (j + 1) % 4 + 4, j + 4) for j in range(4)]
+        mesh('Tilted deck plank', points, faces, timber)
+    else:
+        box('Deck plank', center, (width, .17, .455), timber, turn)
 for x in [-.96, .96]:
     box('Long bearer', (x, deck - .27, 6.6), (.18, .32, 13.9), woods[2])
 for z in [.3, 4.5, 9, 13.25]:
@@ -186,25 +224,31 @@ heights = json.loads(subprocess.check_output(
     ['node', '--experimental-strip-types', '--input-type=module', '-e', code], cwd=ROOT, text=True))
 
 
-def crate(x, y, z, scale=1):
+def crate(x, y, z, scale=1, palette=woods):
     for side in [-1, 1]:
         for i in range(4):
             box('Crate slat', (x, y + (.12 + i * .22) * scale, z + side * .43 * scale),
-                (.94 * scale, .19 * scale, .08 * scale), wood_random.choice(woods))
+                (.94 * scale, .19 * scale, .08 * scale), wood_random.choice(palette))
             box('Crate end', (x + side * .43 * scale, y + (.12 + i * .22) * scale, z),
-                (.08 * scale, .19 * scale, .94 * scale), wood_random.choice(woods))
+                (.08 * scale, .19 * scale, .94 * scale), wood_random.choice(palette))
         for end in [-1, 1]:
             box('Crate corner', (x + side * .4 * scale, y + .46 * scale, z + end * .44 * scale),
-                (.11 * scale, .98 * scale, .11 * scale), woods[2])
+                (.11 * scale, .98 * scale, .11 * scale), palette[2])
     for i in range(4):
         box('Crate lid', (x + (i - 1.5) * .23 * scale, y + .95 * scale, z),
-            (.21 * scale, .08 * scale, .95 * scale), wood_random.choice(woods))
+            (.21 * scale, .08 * scale, .95 * scale), wood_random.choice(palette))
+
+    for i in range(4):
+        box('Crate bottom', (x + (i - 1.5) * .23 * scale, y + .015 * scale, z),
+            (.23 * scale, .08 * scale, .95 * scale), palette[i % len(palette)])
 
 
-for (x, z), y in zip(locations[:2], heights[:2]):
+for index, ((x, z), y) in enumerate(zip(locations[:2], heights[:2])):
     crate(x, y - .08, z, 1.2)
-crate(locations[0][0] + .09, heights[0] + 1.1, locations[0][1] + .06, .8)
-finish('Landing_crates')
+    finish('Landing_crate_' + str(index + 1), (x, y - .08 + .48 * 1.2, z))
+crate(locations[0][0] + .09, heights[0] + 1.1, locations[0][1] + .06, .8, crate_woods)
+finish('Landing_crate_3', (locations[0][0] + .09, heights[0] + 1.1 + .48 * .8,
+                           locations[0][1] + .06))
 
 x, z = locations[2]
 y = heights[2] - .06
@@ -213,7 +257,7 @@ for i, (low, high, r1, r2) in enumerate([(0, .2, .43, .51), (.2, .65, .51, .56),
     beam('Barrel staves', (x, y + low, z), (x, y + high, z), r1, wood_random.choice(woods), 12, r2)
 for h, r in [(.2, .525), (1.08, .525)]:
     beam('Iron barrel hoop', (x, y + h, z), (x, y + h + .075, z), r, dark, 12)
-finish('Landing_barrel')
+finish('Landing_barrel', (x, y + .65, z))
 
 # Two faceted fishing floats mark the mooring, with narrow poles and pennants.
 for i, (x, z) in enumerate([(5.4, 16.5), (-3.2, 20)]):

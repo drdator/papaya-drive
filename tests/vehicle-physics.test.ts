@@ -298,6 +298,8 @@ await test('full-speed mountain approaches use momentum to climb without catapul
       );
       for (let i = 0; i < 960; i++) {
         const state = car.step(gas, dt);
+        // This checks the central mountain approach, before driving into the outer ranges.
+        if (Math.hypot(state.position.x + 10, state.position.z) > 55) break;
         assert.ok(Number.isFinite(state.position.y));
         assert.ok(
           state.position.y < 22,

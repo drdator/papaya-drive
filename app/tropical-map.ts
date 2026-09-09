@@ -27,7 +27,7 @@ function foothills(x: number, z: number) {
     4 * Math.max(0, 1 - ((x + 15) / 20) ** 2 - ((z - 7) / 24) ** 2) ** 2;
   return main + ridge + front + west;
 }
-export function tropicalHeight(x: number, z: number) {
+function islandHeight(x: number, z: number) {
   const radius = islandRadius(x, z);
   const shore = THREE.MathUtils.smoothstep(radius, 0.84, 1.25);
   const dune = (
@@ -45,6 +45,18 @@ export function tropicalHeight(x: number, z: number) {
     dune(37, 25, 10, 9, 3.8) -
     dune(-43, 17, 10, 12, 1.1);
   return THREE.MathUtils.lerp(2.4 + dunes + foothills(x, z), -6.5, shore);
+}
+// A small level patch of packed sand supports the fishing supplies. The same
+// surface is used for rendering and physics, so the props need no hidden anchors.
+const landingSand = { x: 66.35, z: 21.9 };
+const landingHeight = 1.25; // Just below the jetty deck.
+export function tropicalHeight(x: number, z: number) {
+  const distance = Math.hypot(x - landingSand.x, z - landingSand.z);
+  return THREE.MathUtils.lerp(
+    landingHeight,
+    islandHeight(x, z),
+    THREE.MathUtils.smoothstep(distance, 4.25, 7),
+  );
 }
 function mountainFootprint(x: number, z: number) {
   const main = 38 * Math.max(0, 1 - ((x - 8) / 34) ** 2 - ((z + 2) / 28) ** 2);

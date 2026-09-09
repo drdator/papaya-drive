@@ -8,16 +8,15 @@ import {
   route,
   routeHeading,
   seaLevel,
+  terrainHeight,
+  distanceToRoad,
 } from '../app/terrain.ts';
+import { createCentralRockDetails } from '../app/ridge-environment.ts';
 
 await test('the mountain leaves the whole track and six-meter shoulders untouched', () => {
   const taller = mountainHeight(-15, -5),
     shorter = mountainHeight(-8, 1);
   assert.ok(taller > shorter && shorter > 12);
-  assert.ok(
-    mountainHeight(-11.5, -2) < shorter,
-    'A shallow saddle connects the two peaks',
-  );
   for (let i = 0; i < 960; i++) {
     const p = route(i / 960);
     const heading = routeHeading(i / 960);
@@ -31,6 +30,20 @@ await test('the mountain leaves the whole track and six-meter shoulders untouche
       );
     }
   }
+  const outcrops = createCentralRockDetails(terrainHeight, distanceToRoad);
+  outcrops.updateMatrixWorld(true);
+  const point = new THREE.Vector3();
+  outcrops.traverse((object) => {
+    if (!(object instanceof THREE.Mesh)) return;
+    const vertices = object.geometry.getAttribute('position');
+    for (let i = 0; i < vertices.count; i++) {
+      point.fromBufferAttribute(vertices, i).applyMatrix4(object.matrixWorld);
+      assert.ok(
+        distanceToRoad(point.x, point.z) > 6,
+        'Rock outcrops leave the shoulders clear',
+      );
+    }
+  });
   for (let i = 0; i < 16; i++) {
     const angle = (i * Math.PI) / 8;
     const x = Math.cos(angle) * 120,

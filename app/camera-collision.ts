@@ -89,6 +89,7 @@ export function createCameraCollision() {
       root.traverseVisible((object) => {
         if (
           !(object instanceof THREE.Mesh) ||
+          object.userData.cameraCollision === false ||
           object.name.startsWith('Road_paint')
         )
           return;

@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { terrainHeight } from './terrain.ts';
 import { createColliderMotion } from './moving-collider.ts';
 import { createVehicleBuoyancy } from './vehicle-buoyancy.ts';
+import { createFloatingProp } from './floating-prop.ts';
 import {
   gravity,
   groundUnderCar,
@@ -90,6 +91,7 @@ export function createVehiclePhysics(
   }
   let vehicle = createController();
   const buoyancy = createVehicleBuoyancy(body, mass);
+  const floatingProps: ReturnType<typeof createFloatingProp>[] = [];
   const position = new THREE.Vector3();
   const rotation = new THREE.Quaternion();
   const velocity = new THREE.Vector3();
@@ -159,6 +161,90 @@ export function createVehiclePhysics(
   return {
     state,
     body,
+    addFloatingProp(
+      object: THREE.Object3D,
+      waterAt: (x: number, z: number) => number | undefined,
+      shape: 'cuboid' | 'convex' = 'cuboid',
+    ) {
+      const prop = createFloatingProp(world, object, waterAt, shape);
+      floatingProps.push(prop);
+      return prop;
+    },
+    renderFloatingProps(alpha: number) {
+      floatingProps.forEach((prop) => prop.render(alpha));
+    },
+    settleFloatingProps() {
+      if (!floatingProps.length) return;
+      const placed: {
+        prop: (typeof floatingProps)[number];
+        original: THREE.Vector3;
+      }[] = [];
+      for (const prop of [...floatingProps].sort(
+        (a, b) => a.body.translation().y - b.body.translation().y,
+      )) {
+        const p = new THREE.Vector3().copy(prop.body.translation());
+        const original = p.clone();
+        const support = placed.find(
+          ({ original: below, prop: base }) =>
+            Math.hypot(p.x - below.x, p.z - below.z) <
+              Math.min(base.halfSize.x, base.halfSize.z) &&
+            p.y > below.y + base.halfSize.y,
+        );
+        const orientation = new THREE.Quaternion().setFromEuler(
+          new THREE.Euler(
+            0,
+            new THREE.Euler().setFromQuaternion(
+              new THREE.Quaternion().copy(prop.body.rotation()),
+              'YXZ',
+            ).y,
+            0,
+          ),
+        );
+        if (support) {
+          p.y =
+            support.prop.body.translation().y +
+            support.prop.halfSize.y +
+            prop.halfSize.y +
+            0.01;
+        } else {
+          // Start clear of the ground; the level sand at the landing supports
+          // the supplies upright without pinning or burying their colliders.
+          let ground = heightAt(p.x, p.z);
+          for (const x of [-1, 1])
+            for (const z of [-1, 1]) {
+              const corner = new THREE.Vector3(
+                x * prop.halfSize.x,
+                0,
+                z * prop.halfSize.z,
+              ).applyQuaternion(orientation);
+              ground = Math.max(
+                ground,
+                heightAt(p.x + corner.x, p.z + corner.z),
+              );
+            }
+          p.y = ground + prop.halfSize.y + 0.01;
+        }
+        prop.body.setTranslation(p, true);
+        prop.body.setRotation(orientation, true);
+        placed.push({ prop, original });
+      }
+      const enabled = body.isEnabled();
+      body.setEnabled(false);
+      world.timestep = 1 / 120;
+      for (let i = 0; i < 240; i++) world.step();
+      body.setEnabled(enabled);
+      floatingProps.forEach((prop) => {
+        prop.rememberRestPose();
+        prop.reset();
+        prop.render(1);
+      });
+    },
+    stepScenery(dt: number) {
+      floatingProps.forEach((prop) => prop.beforeStep(dt));
+      world.timestep = dt;
+      world.step();
+      floatingProps.forEach((prop) => prop.afterStep());
+    },
     addSolid(mesh: THREE.Mesh, moving = false) {
       mesh.updateWorldMatrix(true, false);
       const geometry = mesh.geometry.clone().applyMatrix4(mesh.matrixWorld);
@@ -201,6 +287,7 @@ export function createVehiclePhysics(
     },
     reset(x: number, z: number, heading: number) {
       buoyancy.reset();
+      floatingProps.forEach((prop) => prop.reset());
       const surface = groundUnderCar(x, z, heading, heightAt);
       rotation.setFromEuler(
         euler.set(surface.pitch, heading, surface.bank, 'YXZ'),
@@ -234,6 +321,10 @@ export function createVehiclePhysics(
       world.timestep = 1 / 120;
       world.step();
       readState();
+      floatingProps.forEach((prop) => {
+        prop.afterStep();
+        prop.render(1);
+      });
     },
     teleport(target: THREE.Vector3, orientation: THREE.Quaternion) {
       buoyancy.reset();
@@ -345,6 +436,7 @@ export function createVehiclePhysics(
         );
       });
       buoyancy.update(waterSurface, dt);
+      floatingProps.forEach((prop) => prop.beforeStep(dt));
       vehicle.updateVehicle(
         dt,
         undefined,
@@ -376,6 +468,7 @@ export function createVehiclePhysics(
       world.timestep = dt;
       world.step();
       readState();
+      floatingProps.forEach((prop) => prop.afterStep());
       state.grounded = wheels.some((wheel) => wheel.contact);
       wheels.forEach((wheel, i) => {
         wheel.skid = 0;
@@ -432,7 +525,12 @@ export function createVehiclePhysics(
               .subVectors(patchPoint, previousCenter)
               .crossVectors(previousAngularVelocity, pointVelocity)
               .add(previousVelocity);
-            const closing = pointVelocity.dot(normal);
+            const otherBody = other.parent();
+            // A light prop transfers much less impact to the car than a fixed wall.
+            const transferred = otherBody?.isDynamic()
+              ? otherBody.mass() / (mass + otherBody.mass())
+              : 1;
+            const closing = pointVelocity.dot(normal) * transferred;
             if (closing > impact.speed) {
               impact.speed = closing;
               impact.radius = obstacleRadii.get(other.handle) ?? 1.1;
