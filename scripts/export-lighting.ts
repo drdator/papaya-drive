@@ -1,36 +1,70 @@
-// Run exportIslandLighting() in a Vite browser page, then save its JSON for Blender.
-// This uses the real terrain texture, palm instances and mountain geometry.
+// Export the actual map geometry and albedo for the offline Blender bake.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { createTerrain, seaLevel } from '../app/terrain.ts';
-import { tropicalTerrain } from '../app/tropical-map.ts';
-import { createTropicalScenery } from '../app/tropical-scenery.ts';
 import {
-  islandLightingSignature,
-  islandLightingMeshes,
-} from '../app/island-lighting.ts';
+  createTerrain,
+  seaLevel,
+  forestTerrain,
+  distanceToRoad,
+  ridgeBaseHeight,
+  terrainHeight,
+} from '../app/terrain.ts';
+import { tropicalTerrain } from '../app/tropical-map.ts';
+import { createRidgeScenery } from '../app/ridge-scenery.ts';
+import {
+  createRidgeBackdrop,
+  createCentralRockDetails,
+} from '../app/ridge-environment.ts';
+import { createRidgeRiver } from '../app/ridge-river.ts';
+import { maps } from '../app/maps.ts';
+import { createTropicalScenery } from '../app/tropical-scenery.ts';
+import { lightingSignature, lightingMeshes } from '../app/baked-lighting.ts';
 
-export async function exportIslandLighting() {
+export async function exportLighting(map: 'island' | 'ridge' = 'island') {
   const loader = new GLTFLoader();
+  const names =
+    map === 'island'
+      ? [...maps.tropical.trees, 'mountain-palm-cove', 'props-palm-cove']
+      : [...maps.ridge.trees, 'rock-boulder', 'rock-flat', 'rock-crag'];
   const models = await Promise.all(
-    [
-      'tree-palm-tall',
-      'tree-palm-curved',
-      'tree-palm-short',
-      'mountain-palm-cove',
-      'props-palm-cove',
-    ].map(
-      async (name) => (await loader.loadAsync(`/models/${name}.glb`)).scene,
+    names.map(
+      async (name) =>
+        (
+          await loader.loadAsync(
+            `${import.meta.env.BASE_URL}models/${name}.glb`,
+          )
+        ).scene,
     ),
   );
-  const ground = createTerrain(tropicalTerrain);
-  const scenery = createTropicalScenery(models.slice(0, 3));
-  const meshes = islandLightingMeshes(
-    ground,
-    scenery.group,
-    models[3],
-    models[4],
+  const ground = createTerrain(
+    map === 'island' ? tropicalTerrain : forestTerrain,
   );
+  let meshes: Map<string, THREE.Mesh>;
+  if (map === 'island') {
+    const scenery = createTropicalScenery(models.slice(0, 3));
+    meshes = lightingMeshes(ground, {
+      scenery: scenery.group,
+      mountain: models[3],
+      jetty: models[4].getObjectByName('Jetty'),
+    });
+  } else {
+    const scenery = createRidgeScenery(models);
+    const mountain = new THREE.Group();
+    mountain.add(
+      createRidgeBackdrop(forestTerrain.heightAt),
+      createCentralRockDetails(forestTerrain.heightAt, distanceToRoad),
+    );
+    const river = createRidgeRiver(
+      ridgeBaseHeight,
+      terrainHeight,
+      new THREE.Uniform(0),
+    );
+    meshes = lightingMeshes(ground, {
+      scenery: scenery.group,
+      mountain,
+      bridge: river.solids,
+    });
+  }
   const canvas = ground.material.map!.image as HTMLCanvasElement;
   const pixels = canvas
     .getContext('2d')!
@@ -94,29 +128,31 @@ export async function exportIslandLighting() {
           colors[v].map((channel, j) => channel * tint[j]),
         ),
         target:
-          mesh !== ground || face.some((v) => vertices[v][1] > seaLevel - 3),
+          mesh !== ground ||
+          map === 'ridge' ||
+          face.some((v) => vertices[v][1] > seaLevel - 3),
       });
     }
     if (faces.length)
       result.push({
         id,
         count: positions.count,
-        signature: islandLightingSignature(mesh),
+        signature: lightingSignature(mesh),
         vertices,
         faces,
       });
   }
-  return { meshes: result };
+  return { meshes: result, lightmapSize: map === 'ridge' ? 4096 : 2048 };
 }
 
-export async function downloadIslandLighting() {
-  const blob = new Blob([JSON.stringify(await exportIslandLighting())], {
+export async function downloadLighting(map: 'island' | 'ridge' = 'island') {
+  const blob = new Blob([JSON.stringify(await exportLighting(map))], {
     type: 'application/json',
   });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
-  link.download = 'island-lighting-scene.json';
+  link.download = `${map}-lighting-scene.json`;
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }

@@ -14,6 +14,7 @@ const touchScreen = matchMedia('(pointer: coarse), (max-width: 700px)');
 
 const ui = {
   viewport: document.querySelector<HTMLDivElement>('.viewport')!,
+  hud: document.querySelector<HTMLDivElement>('.hud')!,
   lap: document.getElementById('lap')!,
   lapTime: document.getElementById('lap-time')!,
   split: document.getElementById('lap-split')!,
@@ -36,6 +37,7 @@ const ui = {
   loading: document.getElementById('loading')!,
   loadingTitle: document.getElementById('loading-title')!,
   loadingDescription: document.getElementById('loading-description')!,
+  loadingArt: document.getElementById('loading-art')!,
   retry: document.getElementById('retry')!,
   wreck: document.getElementById('wreck')!,
   wreckTitle: document.getElementById('wreck-title')!,
@@ -151,6 +153,7 @@ function setText(element: HTMLElement, text: string) {
 }
 
 function updateStatus(status: GameStatus) {
+  const wasReady = latestStatus?.ready;
   latestStatus = status;
   const map = maps[activeMap];
   const race = status.race;
@@ -211,12 +214,18 @@ function updateStatus(status: GameStatus) {
     `Best ${race.leaderboard[0] ? timeLabel(race.leaderboard[0].time) : '—'}`,
   );
   ui.loading.hidden = status.ready;
+  ui.hud.inert = !status.ready;
+  ui.viewport.inert = !status.ready;
+  ui.viewport.setAttribute('aria-busy', String(!status.ready));
+  ui.loadingArt.hidden = Boolean(status.error);
   setText(
     ui.loadingTitle,
-    status.error ? 'Couldn’t start the drive' : 'Packing the picnic…',
+    status.error ? 'Couldn’t start the drive' : `Loading ${map.name}`,
   );
-  setText(ui.loadingDescription, status.error ?? map.loading);
+  setText(ui.loadingDescription, status.error ?? status.loading);
   ui.retry.hidden = !status.error;
+  if (status.ready && !wasReady)
+    ui.viewport.querySelector('canvas')?.focus({ preventScroll: true });
   ui.wreck.hidden = !status.ready || !wrecked || status.flying;
   setText(ui.wreckTitle, status.flooded ? 'Engine flooded.' : 'Car wrecked.');
   setText(

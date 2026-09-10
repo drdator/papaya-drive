@@ -2,21 +2,14 @@ import * as THREE from 'three';
 import { EXRLoader } from 'three/addons/loaders/EXRLoader.js';
 import { seaLevel } from './terrain.ts';
 
-// Only fixed scenery belongs in the bake: boats, buoys, crates, the barrel
-// and animated mooring lines must not leave baked shadows when they move.
-export function islandLightingMeshes(
+// Pass only fixed scenery: moving objects must not leave baked shadows behind.
+export function lightingMeshes(
   ground: THREE.Mesh,
-  scenery: THREE.Object3D,
-  mountain: THREE.Object3D,
-  props: THREE.Object3D,
+  roots: Record<string, THREE.Object3D | undefined>,
 ) {
   const meshes = new Map<string, THREE.Mesh>([['ground', ground]]);
   ground.updateMatrixWorld(true);
-  for (const [prefix, root] of [
-    ['scenery', scenery],
-    ['mountain', mountain],
-    ['jetty', props.getObjectByName('Jetty')],
-  ] as const) {
+  for (const [prefix, root] of Object.entries(roots)) {
     if (!root) continue;
     root.updateWorldMatrix(true, true);
     let index = 0;
@@ -29,7 +22,7 @@ export function islandLightingMeshes(
 }
 
 // Detect moved instances or changed geometry before applying an obsolete bake.
-export function islandLightingSignature(mesh: THREE.Mesh) {
+export function lightingSignature(mesh: THREE.Mesh) {
   let hash = 2166136261;
   function add(value: number) {
     hash = Math.imul(hash ^ Math.round(value * 10000), 16777619);
@@ -49,7 +42,7 @@ export function islandLightingSignature(mesh: THREE.Mesh) {
   return (hash >>> 0).toString(16);
 }
 
-export type IslandBake = {
+export type LightingBake = {
   terrain: {
     id: string;
     count: number;
@@ -67,23 +60,22 @@ export type IslandBake = {
   }[];
 };
 
-export async function loadIslandLighting(
-  ground: THREE.Mesh,
-  scenery: THREE.Object3D,
-  mountain: THREE.Object3D,
-  props: THREE.Object3D,
+export async function loadBakedLighting(
+  map: 'island' | 'ridge',
+  meshes: Map<string, THREE.Mesh>,
   signal: AbortSignal,
 ) {
+  const ground = meshes.get('ground');
+  if (!ground) throw new Error('Lighting bake needs a ground mesh');
   const response = await fetch(
-    `${import.meta.env.BASE_URL}lighting/island.json`,
+    `${import.meta.env.BASE_URL}lighting/${map}.json`,
     { signal },
   );
-  if (!response.ok) throw new Error('Island lighting bake could not load');
-  const bake: IslandBake = await response.json();
+  if (!response.ok) throw new Error('Map lighting bake could not load');
+  const bake: LightingBake = await response.json();
   signal.throwIfAborted();
-  const meshes = islandLightingMeshes(ground, scenery, mountain, props);
   if (bake.meshes.length + 1 !== meshes.size)
-    throw new Error('Island scenery changed; rebake its lighting');
+    throw new Error('Map scenery changed; rebake its lighting');
   const materials: THREE.MeshStandardMaterial[] = [];
   const originalGeometries = new Set<THREE.BufferGeometry>();
   const originalMaterials = new Set<THREE.Material>();
@@ -94,16 +86,16 @@ export async function loadIslandLighting(
     if (
       !mesh ||
       mesh.geometry.getAttribute('position').count !== entry.count ||
-      islandLightingSignature(mesh) !== entry.signature
+      lightingSignature(mesh) !== entry.signature
     )
-      throw new Error('Island lighting is out of date; rebake the island');
+      throw new Error('Map lighting is out of date; rebake the map');
   }
   const lightmapResponse = await fetch(
     `${import.meta.env.BASE_URL}lighting/${bake.terrain.texture}`,
     { signal },
   );
   if (!lightmapResponse.ok)
-    throw new Error('Island ground lightmap could not load');
+    throw new Error('Map ground lightmap could not load');
   const buffer = await lightmapResponse.arrayBuffer();
   signal.throwIfAborted();
   const lightmap = new EXRLoader().createDataTexture(buffer);
@@ -112,7 +104,7 @@ export async function loadIslandLighting(
     lightmap.image.height !== bake.terrain.size
   ) {
     lightmap.dispose();
-    throw new Error('Island ground lightmap has the wrong dimensions');
+    throw new Error('Map ground lightmap has the wrong dimensions');
   }
   lightmap.channel = 1;
   lightmap.generateMipmaps = true;
@@ -139,26 +131,39 @@ export async function loadIslandLighting(
     const previousKey = material.customProgramCacheKey();
     material.onBeforeCompile = (shader, renderer) => {
       previousCompile(shader, renderer);
-      // Use the ground bake at full strength so ambient fill doesn't wash out
-      // its shaded areas. The scenery keeps its separate 75% vertex blend.
+      shader.vertexShader = shader.vertexShader
+        .replace(
+          '#include <common>',
+          '#include <common>\nvarying vec3 bakedGroundPosition;',
+        )
+        .replace(
+          '#include <begin_vertex>',
+          '#include <begin_vertex>\nbakedGroundPosition = position;',
+        );
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <common>',
+        '#include <common>\nvarying vec3 bakedGroundPosition;',
+      );
+      // Keep a little ambient fill on Ridge to soften its shaded ground.
+      // The island keeps full ground contrast; scenery uses its 75% blend.
       shader.fragmentShader = shader.fragmentShader.replace(
         '#include <lights_fragment_maps>',
         THREE.ShaderChunk.lights_fragment_maps.replace(
           'irradiance += lightMapIrradiance;',
-          `#ifdef ISLAND_BAKED_LIGHTING
-            float groundBakeWeight = smoothstep(${seaLevel - 3}, ${seaLevel - 1}, sandPosition.y);
+          `#ifdef BAKED_LIGHTING
+            float groundBakeWeight = ${map === 'island' ? `smoothstep(${seaLevel - 3}, ${seaLevel - 1}, bakedGroundPosition.y)` : '0.9'};
             irradiance = mix(irradiance, lightMapIrradiance, groundBakeWeight);
           #endif`,
         ),
       );
     };
     material.customProgramCacheKey = () =>
-      `${previousKey}-island-ground-lightmap-v2`;
+      `${previousKey}-${map}-ground-lightmap-v4`;
     materials.push(material);
   }
   for (const entry of bake.meshes) {
     const mesh = meshes.get(entry.id)!;
-    // Each palm instance needs its own lighting attribute, even when its shape is shared.
+    // Each instance needs its own lighting attribute, even when its shape is shared.
     const originalGeometry = mesh.geometry;
     originalGeometries.add(originalGeometry);
     mesh.geometry = mesh.geometry.clone();
@@ -186,37 +191,37 @@ export async function loadIslandLighting(
           .replace(
             '#include <common>',
             `#include <common>
-          #ifdef ISLAND_BAKED_LIGHTING
+          #ifdef BAKED_LIGHTING
             attribute vec4 bakedIrradiance;
-            varying vec4 islandIrradiance;
+            varying vec4 sceneIrradiance;
           #endif`,
           )
           .replace(
             '#include <begin_vertex>',
             `#include <begin_vertex>
-          #ifdef ISLAND_BAKED_LIGHTING
-            islandIrradiance = bakedIrradiance;
+          #ifdef BAKED_LIGHTING
+            sceneIrradiance = bakedIrradiance;
           #endif`,
           );
         shader.fragmentShader = shader.fragmentShader
           .replace(
             '#include <common>',
             `#include <common>
-          #ifdef ISLAND_BAKED_LIGHTING
-            varying vec4 islandIrradiance;
+          #ifdef BAKED_LIGHTING
+            varying vec4 sceneIrradiance;
           #endif`,
           )
           .replace(
             '#include <lights_fragment_end>',
             `
-          #ifdef ISLAND_BAKED_LIGHTING
+          #ifdef BAKED_LIGHTING
             // Keep some of the game's bright ambient fill beneath the foliage.
-            irradiance = mix(irradiance, islandIrradiance.rgb, islandIrradiance.a * 0.75);
+            irradiance = mix(irradiance, sceneIrradiance.rgb, sceneIrradiance.a * 0.75);
           #endif
           #include <lights_fragment_end>`,
           );
       };
-      material.customProgramCacheKey = () => `${previousKey}-island-bake-v2`;
+      material.customProgramCacheKey = () => `${previousKey}-vertex-bake-v3`;
       materialCache.set(source, material);
       materials.push(material);
       return material;
@@ -234,8 +239,8 @@ export async function loadIslandLighting(
     setEnabled(enabled: boolean) {
       for (const material of materials) {
         material.defines ??= {};
-        if (enabled) material.defines.ISLAND_BAKED_LIGHTING = '';
-        else delete material.defines.ISLAND_BAKED_LIGHTING;
+        if (enabled) material.defines.BAKED_LIGHTING = '';
+        else delete material.defines.BAKED_LIGHTING;
         material.needsUpdate = true;
       }
     },

@@ -38,8 +38,10 @@ import {
 } from './ridge-river';
 import { createCityGround } from './city-map';
 import { createTropicalScenery } from './tropical-scenery';
-import { loadIslandLighting } from './island-lighting';
+import { loadBakedLighting, lightingMeshes } from './baked-lighting';
+import { createRidgeScenery } from './ridge-scenery';
 import { createSunShadowTracking, sunShadowFragment } from './sun-shadows';
+import { createCascadedSun } from './cascaded-sun';
 import {
   createRace,
   raceStorage,
@@ -49,6 +51,7 @@ import {
 
 export type GameStatus = {
   ready: boolean;
+  loading: string;
   speed: number;
   race: RaceState;
   paused: boolean;
@@ -81,18 +84,13 @@ export function createGame(
   const map = maps[mapId];
   const city = mapId === 'city';
   const { route, routeHeading, routeLength, distanceToRoad } = map;
-  const {
-    heightAt: terrainHeight,
-    mountainAt: mountainHeight,
-    tropical,
-  } = map.terrain;
+  const { heightAt: terrainHeight, tropical } = map.terrain;
   const race = createRace(mapId, raceStorage());
   const lightingAbort = new AbortController();
-  let islandLighting:
-    | Awaited<ReturnType<typeof loadIslandLighting>>
-    | undefined;
+  let bakedLighting: Awaited<ReturnType<typeof loadBakedLighting>> | undefined;
   const status: GameStatus = {
     ready: false,
+    loading: map.loading,
     speed: 0,
     race: race.state,
     paused: false,
@@ -105,6 +103,7 @@ export function createGame(
     flying: false,
     bakedLighting: null,
   };
+  onStatus({ ...status });
   const scene = new THREE.Scene();
   const sky = tropical ? '#94d7ee' : city ? '#c4dbe0' : '#bccfd1';
   scene.background = new THREE.Color(sky);
@@ -168,7 +167,11 @@ export function createGame(
   sun.shadow.normalBias = 0.025;
   sun.shadow.bias = -0.00015;
   const trackSunShadow = createSunShadowTracking(sun);
-  scene.add(sun, sun.target);
+  const cascadedSun =
+    new URLSearchParams(location.search).get('shadows') === 'single'
+      ? undefined
+      : createCascadedSun(scene, camera, sun);
+  if (!cascadedSun) scene.add(sun, sun.target);
 
   const waterTime = new THREE.Uniform(0);
   const boatWaterMask = createBoatWaterMask();
@@ -593,6 +596,7 @@ export function createGame(
           ? 1200
           : 650;
     camera.updateProjectionMatrix();
+    cascadedSun?.updateFrustums();
     audio.unlock();
     canvas.setAttribute(
       'aria-label',
@@ -619,11 +623,13 @@ export function createGame(
     ' ',
   ]);
   function setKey(key: string, down: boolean) {
+    if (!status.ready) return;
     if (down && !status.paused && !race.state.finished) audio.unlock();
     if (down && !status.paused && !race.state.finished) keys.add(key);
     else keys.delete(key);
   }
   function keyDown(event: KeyboardEvent) {
+    if (!status.ready) return;
     if (
       event.target instanceof Element &&
       (event.target.closest('dialog') ||
@@ -666,14 +672,10 @@ export function createGame(
     renderer.setSize(width, height);
     camera.aspect = width / Math.max(height, 1);
     camera.updateProjectionMatrix();
+    cascadedSun?.updateFrustums();
   });
   resize.observe(container);
 
-  let seed = 81;
-  function random() {
-    seed = (1664525 * seed + 1013904223) >>> 0;
-    return seed / 4294967296;
-  }
   const loader = new GLTFLoader();
   const assetNames = [
     'papaya-car',
@@ -694,6 +696,7 @@ export function createGame(
       }
     });
   }
+  let assetsReady = false;
   Promise.all(
     assetNames.map(async (name) => {
       const gltf = await loader.loadAsync(
@@ -714,6 +717,9 @@ export function createGame(
     }),
   )
     .then(async (models) => {
+      if (disposed) return;
+      status.loading = 'Getting your car ready…';
+      onStatus({ ...status });
       await initializeVehiclePhysics();
       if (disposed) return;
       if (map.mountain) mountain.add(models[assetNames.indexOf(map.mountain)]);
@@ -823,68 +829,56 @@ export function createGame(
       }
       // Each map keeps its scenery clear of the driving line.
       crashVisuals = createCrashVisuals(car, body, scene, terrainHeight);
+      let bakeMeshes: Map<string, THREE.Mesh> | undefined;
       if (tropical) {
         const scenery = createTropicalScenery(models.slice(1, 4));
         scene.add(scenery.group);
         cameraCollision.add(scenery.group);
         scenery.solids.forEach((mesh) => physics!.addSolid(mesh));
         scenery.trunks.forEach((trunk) => physics!.addObstacle(trunk));
+        bakeMeshes = lightingMeshes(ground, {
+          scenery: scenery.group,
+          mountain,
+          jetty:
+            models[assetNames.indexOf(map.props!)].getObjectByName('Jetty'),
+        });
+      } else if (mapId === 'ridge') {
+        const scenery = createRidgeScenery(models.slice(1, 7));
+        scene.add(scenery.group);
+        cameraCollision.add(scenery.group);
+        scenery.obstacles.forEach((obstacle) => physics!.addObstacle(obstacle));
+        bakeMeshes = lightingMeshes(ground, {
+          scenery: scenery.group,
+          mountain,
+          bridge: river!.solids,
+        });
+      }
+      if (bakeMeshes) {
+        status.loading = 'Loading scenery and lighting…';
+        onStatus({ ...status });
         try {
-          islandLighting = await loadIslandLighting(
-            ground,
-            scenery.group,
-            mountain,
-            models[assetNames.indexOf(map.props!)],
+          bakedLighting = await loadBakedLighting(
+            tropical ? 'island' : 'ridge',
+            bakeMeshes,
             lightingAbort.signal,
           );
           status.bakedLighting = true;
-          islandLighting.setEnabled(true);
+          bakedLighting.setEnabled(true);
         } catch (error) {
           if (!disposed)
             console.warn(
-              'Using original island lighting because the bake could not load',
+              'Using original map lighting because the bake could not load',
               error,
             );
         }
         if (disposed) return;
-      } else if (!city)
-        for (let i = 0; i < 440; i++) {
-          const spread = i < 255 ? 145 : 235;
-          const x = (random() - 0.5) * spread,
-            z = (random() - 0.5) * spread;
-          if (distanceToRoad(x, z) < 6.4) continue;
-          if (river && riverDistance(x, z) < 2.5) continue;
-          if (Math.hypot(x - start.x, z - start.z) < 8) continue;
-          const surface = terrainHeight(x, z);
-          if (surface < seaLevel + 1.2) continue;
-          const isTree = random() > 0.32;
-          const index = isTree
-            ? 1 + Math.floor(random() * 3)
-            : 4 + Math.floor(random() * 3);
-          const model = models[index].clone(true);
-          const scale = isTree ? 1.6 + random() * 1.5 : 0.9 + random() * 1.25;
-          model.scale.setScalar(scale);
-          model.position.set(x, surface - 0.08, z);
-          model.rotation.y = random() * Math.PI * 2;
-          if (isTree && mountainHeight(x, z) > (Math.hypot(x, z) > 68 ? 24 : 6))
-            continue;
-          if (!isTree && Math.hypot(x, z) < 40 && mountainHeight(x, z) > 4)
-            continue;
-          scene.add(model);
-          cameraCollision.add(model);
-          physics.addObstacle({
-            x,
-            z,
-            radius: (isTree ? 0.16 : index === 5 ? 0.8 : 0.67) * scale,
-            bottom: surface,
-            top: surface + (isTree ? 3.5 : index === 5 ? 0.6 : 1.4) * scale,
-          });
-        }
+      }
       physics.settleFloatingProps();
       cameraCollision.update();
       cameraCollision.build();
-      status.ready = true;
+      status.loading = 'Almost ready…';
       reset();
+      assetsReady = true;
     })
     .catch((error) => {
       if (!disposed) {
@@ -1061,6 +1055,7 @@ export function createGame(
   function animate(time: number) {
     if (disposed) return;
     frame = requestAnimationFrame(animate);
+    if (!assetsReady) return;
     const dt = previousTime ? Math.min((time - previousTime) / 1000, 0.1) : 0;
     previousTime = time;
     if (!status.paused && !race.state.finished) {
@@ -1184,9 +1179,18 @@ export function createGame(
       cameraCollision?.move(cameraOrigin, camera.position, false);
       camera.lookAt(cameraLook);
     }
-    trackSunShadow(status.flying ? camera.position : car.position);
+    if (cascadedSun) {
+      cascadedSun.update();
+    } else trackSunShadow(status.flying ? camera.position : car.position);
     gatePad.material.opacity = 0.22 + Math.sin(time * 0.003) * 0.07;
     renderer.render(scene, camera);
+    // Keep the loading cover through shader compilation and texture uploads.
+    if (!status.ready) {
+      status.ready = true;
+      previousTime = 0;
+      keys.clear();
+      onStatus({ ...status });
+    }
     hudTime += dt;
     if (hudTime > 0.1) {
       onStatus({ ...status });
@@ -1201,16 +1205,17 @@ export function createGame(
     toggleMute,
     toggleFly,
     toggleBakedLighting() {
-      if (!islandLighting) return;
+      if (!bakedLighting) return;
       status.bakedLighting = !status.bakedLighting;
-      islandLighting.setEnabled(status.bakedLighting);
+      bakedLighting.setEnabled(status.bakedLighting);
       onStatus({ ...status });
     },
     setKey,
     dispose() {
       disposed = true;
       lightingAbort.abort();
-      islandLighting?.dispose();
+      cascadedSun?.dispose();
+      bakedLighting?.dispose();
       audio.dispose();
       physics?.dispose();
       cameraCollision?.dispose();

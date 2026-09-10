@@ -1051,3 +1051,84 @@ button {
     font-size: 14px;
   }
 }
+
+.loading-screen {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  padding: 28px 20px;
+  overflow: auto;
+  background: #a8bd8b;
+  background-image: radial-gradient(ellipse at 50% 35%, #dce4ae, #a8bd8b 75%);
+}
+.game:has(.loading-screen:not([hidden])) .hud {
+  visibility: hidden;
+}
+.loading-card {
+  position: relative;
+  inset: auto;
+  transform: none;
+  width: min(420px, 100%);
+  padding: 30px 28px 32px;
+}
+.loading-brand {
+  display: inline-block;
+  padding: 5px 16px;
+  border-radius: 12px;
+  background: var(--ink);
+  color: var(--cream);
+  font-size: 16px;
+  box-shadow: 0 3px 0 #17382e;
+  margin-bottom: 26px;
+}
+.loading-art {
+  width: 180px;
+  margin: 0 auto 24px;
+  overflow: hidden;
+}
+.loading-car {
+  display: block;
+  width: 140px;
+  height: 76px;
+  margin: 0 auto;
+  animation: loading-bounce 700ms ease-in-out infinite alternate;
+}
+.loading-road {
+  height: 8px;
+  margin-top: 5px;
+  border-top: 3px solid var(--cream-edge);
+  overflow: hidden;
+}
+.loading-road::after {
+  content: '';
+  display: block;
+  width: calc(100% + 36px);
+  height: 3px;
+  background: repeating-linear-gradient(
+    90deg,
+    var(--cream-edge) 0 18px,
+    transparent 18px 36px
+  );
+  animation: loading-road 650ms linear infinite;
+}
+.loading-card p {
+  min-height: 3em;
+}
+@keyframes loading-bounce {
+  to {
+    transform: translateY(2px);
+  }
+}
+@keyframes loading-road {
+  to {
+    transform: translateX(-36px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .loading-car,
+  .loading-road::after {
+    animation: none;
+  }
+}

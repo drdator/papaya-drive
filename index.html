@@ -62,8 +62,8 @@
       </defs>
     </svg>
     <main class="game" aria-label="Papaya Drive car game">
-      <div class="viewport"></div>
-      <div class="hud">
+      <div class="viewport" aria-busy="true" inert></div>
+      <div class="hud" inert>
         <div class="topbar">
           <div class="view-controls">
             <button
@@ -140,14 +140,6 @@
           aria-live="polite"
           hidden
         ></output>
-        <output id="loading" class="message">
-          <span class="message-token" aria-hidden="true"
-            ><svg class="icon"><use href="#icon-heart" /></svg
-          ></span>
-          <h1 id="loading-title">Packing the picnic…</h1>
-          <p id="loading-description">Loading your car and the forest.</p>
-          <button id="retry" hidden>Try again</button>
-        </output>
         <output id="wreck" class="message wreck-message" hidden>
           <span class="message-token" aria-hidden="true"
             ><svg class="icon"><use href="#icon-repair" /></svg
@@ -281,6 +273,38 @@
           <button class="game-button" data-key="q" aria-label="Fly down">
             −
           </button>
+        </div>
+      </div>
+      <div id="loading" class="loading-screen">
+        <div class="message loading-card">
+          <span class="loading-brand">Papaya Drive</span>
+          <div id="loading-art" class="loading-art" aria-hidden="true">
+            <svg class="loading-car" viewBox="0 0 140 76" fill="none">
+              <path d="M19 42 30 15h62l22 27 11 5v15H12V47Z" fill="#b9683c" />
+              <path d="m19 38 11-27h62l22 27 11 5v15H12V43Z" fill="#e99451" />
+              <path d="M37 18h21v20H29Zm28 0h23l17 20H65Z" fill="#a6c7bd" />
+              <path d="M37 18h21v5H35Zm28 0h23l4 5H65Z" fill="#d9e5db" />
+              <path d="M12 46h10v7H12Zm103-3h10v8h-10Z" fill="#fff5d9" />
+              <path
+                d="M67 44h10"
+                stroke="#b9683c"
+                stroke-width="3"
+                stroke-linecap="round"
+              />
+              <circle cx="36" cy="59" r="12" fill="#254d40" />
+              <circle cx="102" cy="59" r="12" fill="#254d40" />
+              <circle cx="36" cy="59" r="5" fill="#d9cba4" />
+              <circle cx="102" cy="59" r="5" fill="#d9cba4" />
+            </svg>
+            <div class="loading-road"></div>
+          </div>
+          <div role="status" aria-live="polite" aria-atomic="true">
+            <h1 id="loading-title">Loading Ridge trail</h1>
+            <p id="loading-description">
+              Loading your car and the mountain trail.
+            </p>
+          </div>
+          <button id="retry" hidden>Try again</button>
         </div>
       </div>
     </main>

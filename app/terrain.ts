@@ -301,16 +301,16 @@ export function createTerrain(
       flatShading: true,
     }),
   );
-  if (profile.tropical) {
-    terrain.material.onBeforeCompile = (shader) => {
-      // Smooth shadow-map stair steps on the ground without softening the palms.
-      shader.fragmentShader = shader.fragmentShader.replace(
-        '#include <shadowmap_pars_fragment>',
-        THREE.ShaderChunk.shadowmap_pars_fragment.replace(
-          'float radius = shadowRadius * texelSize.x;',
-          'float radius = max(shadowRadius, 2.0) * texelSize.x;',
-        ),
-      );
+  terrain.material.onBeforeCompile = (shader) => {
+    // Match ground shadow softness across maps while keeping scenery crisp.
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <shadowmap_pars_fragment>',
+      THREE.ShaderChunk.shadowmap_pars_fragment.replace(
+        'float radius = shadowRadius * texelSize.x;',
+        'float radius = max(shadowRadius, 2.0) * texelSize.x;',
+      ),
+    );
+    if (profile.tropical) {
       shader.uniforms.waterTime = time;
       shader.uniforms.restingSeaLevel = new THREE.Uniform(seaLevel);
       shader.vertexShader = shader.vertexShader
@@ -353,8 +353,8 @@ export function createTerrain(
           `#include <roughnessmap_fragment>
           roughnessFactor = mix(roughnessFactor, 0.46, wetSand);`,
         );
-    };
-  }
+    }
+  };
   terrain.receiveShadow = true;
   return terrain;
 }

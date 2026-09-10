@@ -1,10 +1,11 @@
-"""Bake sky visibility and bounced sunlight across the island’s fixed scenery.
+"""Bake static map lighting with Blender 5.2+.
 
-Input: work/island-lighting-scene.json from export-island-lighting.ts.
-Run: Blender --background --python scripts/bake-island-lighting.py
-Output: public/lighting/island.json and island-ground.exr (no direct sun).
-Add -- --terrain-only to preserve the existing scenery vertex bake.
+Export work/{map}-lighting-scene.json using scripts/export-lighting.ts.
+Run: Blender --background --python scripts/bake-lighting.py -- --map ridge
+Output: public/lighting/{map}.json and {map}-ground.exr (no direct sun).
+Use --terrain-only to preserve an existing scenery vertex bake.
 """
+import argparse
 import json
 import math
 import sys
@@ -16,7 +17,12 @@ import bpy
 from mathutils import Vector
 
 ROOT = Path(__file__).resolve().parents[1]
-source = json.loads((ROOT / 'work/island-lighting-scene.json').read_text())
+parser = argparse.ArgumentParser()
+parser.add_argument('--map', choices=['island', 'ridge'], default='island')
+parser.add_argument('--terrain-only', action='store_true')
+args = parser.parse_args(sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else [])
+source = json.loads((ROOT / f'work/{args.map}-lighting-scene.json').read_text())
+lightmap_size = source.get('lightmapSize', 2048)
 bpy.ops.wm.read_factory_settings(use_empty=True)
 scene = bpy.context.scene
 scene.render.engine = 'CYCLES'
@@ -152,7 +158,7 @@ def bake_vertices():
 
 
 def bake_ground():
-    # Independent UVs cover the island, not the unused 300 m ocean floor.
+    # Independent UVs cover the receiving terrain, with a margin for filtering.
     ground = next(mesh for mesh in source['meshes'] if mesh['id'] == 'ground')
     points = [ground['vertices'][i] for face in ground['faces'] if face['target'] for i in face['vertices']]
     min_x = math.floor((min(p[0] for p in points) - 2.5) / 5) * 5
@@ -167,7 +173,7 @@ def bake_ground():
     for loop in target.data.loops:
         x, minus_z, _ = target.data.vertices[loop.vertex_index].co
         uv.data[loop.index].uv = ((x - min_x) / (max_x - min_x), (max_z + minus_z) / (max_z - min_z))
-    image = bpy.data.images.new('Ground irradiance', width=2048, height=2048, float_buffer=True)
+    image = bpy.data.images.new('Ground irradiance', width=lightmap_size, height=lightmap_size, float_buffer=True)
     image.colorspace_settings.name = 'Linear Rec.709'
     texture = material.node_tree.nodes.new('ShaderNodeTexImage')
     texture.image = image
@@ -182,13 +188,13 @@ def bake_ground():
         scene.render.bake.use_pass_direct = direct
         scene.render.bake.use_pass_indirect = indirect
         bpy.ops.object.bake(type='DIFFUSE')
-        pixels = np.empty(2048 * 2048 * 4, dtype=np.float32)
+        pixels = np.empty(lightmap_size * lightmap_size * 4, dtype=np.float32)
         image.pixels.foreach_get(pixels)
         return pixels.reshape((-1, 4))
-    print('Baking 2048² terrain bounce light', flush=True)
+    print(f'Baking {lightmap_size}² terrain bounce light', flush=True)
     bounced = bake(False, True)
     sun_data.energy = 0
-    print('Baking 2048² terrain sky visibility', flush=True)
+    print(f'Baking {lightmap_size}² terrain sky visibility', flush=True)
     sky = bake(True, False)
     bounced[:, :3] = np.maximum(0, (bounced[:, :3] + sky[:, :3]) * math.pi)
     bounced[:, 3] = 1
@@ -200,7 +206,7 @@ def bake_ground():
     output_scene = bpy.data.scenes.new('Lightmap denoise')
     output_scene.render.engine = 'CYCLES'
     output_scene.cycles.samples = 1
-    output_scene.render.resolution_x = output_scene.render.resolution_y = 2048
+    output_scene.render.resolution_x = output_scene.render.resolution_y = lightmap_size
     output_scene.render.resolution_percentage = 100
     camera = bpy.data.objects.new('Denoise camera', bpy.data.cameras.new('Denoise camera'))
     output_scene.collection.objects.link(camera)
@@ -219,19 +225,19 @@ def bake_ground():
     settings.file_format = 'OPEN_EXR'
     settings.color_mode = 'RGB'
     settings.color_depth = '16'
-    settings.exr_codec = 'ZIP'
-    output_scene.render.filepath = str(ROOT / 'public/lighting/island-ground.exr')
+    settings.exr_codec = 'PIZ' if args.map == 'ridge' else 'ZIP'
+    output_scene.render.filepath = str(ROOT / f'public/lighting/{args.map}-ground.exr')
     bpy.ops.render.render(scene=output_scene.name, write_still=True)
     return {
         'id': 'ground', 'count': ground['count'], 'signature': ground['signature'],
         'bounds': [min_x, max_x, min_z, max_z],
-        'texture': 'island-ground.exr', 'size': 2048,
+        'texture': f'{args.map}-ground.exr', 'size': lightmap_size,
     }
 
 
-path = ROOT / 'public/lighting/island.json'
+path = ROOT / f'public/lighting/{args.map}.json'
 path.parent.mkdir(parents=True, exist_ok=True)
-if '--terrain-only' in sys.argv:
+if args.terrain_only:
     meshes = json.loads(path.read_text())['meshes']
 else:
     meshes = bake_vertices()
