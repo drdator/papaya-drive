@@ -1,94 +1,49 @@
 # Papaya Drive
 
-A small Vite + TypeScript driving game with Three.js and Rapier using the Blender car, rocks, woodland trees, and palm trees from the adjacent asset folders.
+A low-poly driving game with woodland trails, tropical beaches and a small orange car. Race three laps through the golden checkpoints and beat your best time. Each track keeps a top five in your browser.
 
-![Ridge Trail: drifting through the forest toward a checkpoint.](docs/ridge-trail-forest.png)
+**[Play Papaya Drive](https://d2e17ltpesncil.cloudfront.net)**
 
-![Ridge Trail: racing around the mountain with woodland and mushrooms beside the track.](docs/ridge-trail-mountain.png)
+<table>
+  <tr>
+    <td><img src="docs/ridge-trail-forest.png" alt="Drifting through the forest on Ridge Trail." /></td>
+    <td><img src="docs/ridge-trail-mountain.png" alt="Racing around Ridge Trail’s mountain." /></td>
+  </tr>
+  <tr>
+    <td><img src="docs/palm-cove-harbour.png" alt="Palm Cove’s jetty and rock arch." /></td>
+    <td><img src="docs/palm-cove-coast.png" alt="Racing between palm trees and the sea." /></td>
+  </tr>
+</table>
 
-![Palm Cove: driving past the jetty toward the rock arch.](docs/palm-cove-harbour.png)
+## Run locally
 
-![Palm Cove: racing along the coast between palm trees and the sea.](docs/palm-cove-coast.png)
+Requires Node.js 22.13+.
 
-[Play Papaya Drive](https://d2e17ltpesncil.cloudfront.net)
+```sh
+npm install
+npm run dev
+```
 
-Run `npm install` then `npm run dev`. The game runs at `http://localhost:3000`. Build static files with `npm run build`, then preview the build with `npm start`. Run the focused driving, contact, and terrain checks with `npm test` (Node 22.13+).
+Open [localhost:3000](http://localhost:3000). Use `npm run build` for a production build, `npm start` to preview it, and `npm test` to run tests.
 
-- W / Up: accelerate
-- A/D / Left/Right: steer
-- S / Down: brake, then reverse once stopped
-- Space: handbrake
-- R: repair the car and restart the entire three-lap race
-- Escape: pause
-- Touch controls appear on phones and tablets
-- Drag the scenery to orbit the camera around the car. Three seconds after release, it eases back to the chase view. This also works while paused or wrecked. The camera keeps clearance from buildings, terrain, roofs, rocks, and trees on every map: chase view pulls forward when obstructed, and free flight stops or slides along scenery.
-- **Fly** is only shown with `?debug=1` in the URL. It lets you carry the car around the map while the race timer pauses. Using it marks the entire attempt as practice, excluding it from the top five until you reset. Drag to look, use WASD or arrow keys to move, Q/E to descend/rise, and Shift to fly faster. Touch screens also have +/− height controls. **Drive** releases the car at its visible position, facing the flight direction, with normal gravity and collision. Fly above hard-to-reach areas, then drop in to test them.
+## Controls
 
-Passing a checkpoint plays a short rising chime. Fatal front impacts collapse the nose and fold the hood much more severely. Hard fatal front impacts sometimes release the nearest front wheel; it tumbles with the other debris and is refitted on reset.
+| Input            | Action                      |
+| ---------------- | --------------------------- |
+| W / ↑            | Accelerate                  |
+| A, D / ←, →      | Steer                       |
+| S / ↓            | Brake and reverse           |
+| Space            | Handbrake                   |
+| R                | Repair and restart the race |
+| Escape           | Pause                       |
+| Drag the scenery | Orbit the camera            |
 
-Use **Maps** to choose **Ridge trail**, a woodland loop in a mountain valley, or **Palm cove**, a tropical beach circuit around a tall rocky mountain. **Papaya city** is temporarily hidden from the picker while it is being refined; its map code and assets are retained. Remove `hidden` from the city button in `index.html` to make it available again. Palm cove passes through a real rock arch with solid pillars and an open driving passage. It uses three palms based on `../low-poly-palms`, arranged into groves with broad-leaf understory. The game versions have continuous bark and subtle foliage colors; rebuild them with `scripts/build-papaya-palms.py` (editable source: `assets/papaya-palms.blend`). Varied beach stones, offshore outcrops, driftwood, and mottled sand give different stretches of the shore their own character. A wooden jetty, moored rowboat, crates, barrel, ropes, and fishing buoys form a small landing on the eastern shore, with a cabin yacht anchored farther out. The crates and barrel rest upright on a small level patch of sand with ordinary dynamic physics. The crates have wooden bottoms and can be knocked over by the car; the barrel can tumble and roll. Both float with the waves when pushed into the water. They keep moving in Fly mode, pause with the game, and return to their starting positions on reset. The rowboat follows the coastal swell with flexible mooring lines, while the yacht gently pitches and rolls. Both follow the water clock, pause with the game, and keep their collision surfaces aligned. The editable prop models are in `assets/palm-cove-props.blend`, rebuilt with `scripts/build-palm-props.py`. Scenery placement is in `app/tropical-scenery.ts`; solid objects stay clear of the track and shoulders. Switching maps starts a fresh drive; sound preference is retained.
+Touch controls appear on phones and tablets. Use **Maps** to switch between Ridge Trail and Palm Cove, and **Leaderboard** to see your best times. Times stay on this browser and device.
 
-Race three laps through eight ordered golden checkpoints per lap. The timer starts when you accelerate from the starting position; each lap ends by crossing the checkered finish line forwards. The HUD shows total race time, current lap time, and your best three-lap time. Lap splits compare cumulative time with the corresponding point in your best race. After lap three, the game stops and shows your total time, lap times, and rank, with a **Race again** button.
+## Development
 
-**Leaderboard** shows the five fastest completed races for the selected track. Times and lap splits are stored in this browser’s `localStorage`, separately per map, under `papaya-drive:times:v1:<map>`. They persist across reloads but are not shared between devices and disappear if browser data is cleared. Practice runs and incomplete races are never saved. Equal times keep the older entry first. Pausing or opening a menu stops the clock; reset and map changes start a fresh attempt. If browser storage is blocked or full, the finish screen still shows the result and explains that it could not be saved.
+Built with TypeScript, Vite, Three.js, Rapier and Blender assets.
 
-Engine sound blends 12 engine and 10 exhaust recordings at measured RPMs. Adjacent recordings crossfade with small pitch adjustments; throttle adds exhaust character and gear changes briefly unload it. Levels are matched to avoid volume jumps between recordings. Tire sound follows sliding. Sound starts with your first driving or camera input. Use Sound on/off to mute; pausing or leaving the tab silences it. Audio attribution and license details are in [audio credits](public/audio/credits.html), also linked from the pause panel.
-
-“Cozy Drive” plays on Ridge Trail, “Tropical Drive” on Palm Cove, and “City Night Loop” on Papaya City. Music loops quietly behind the engine and effects and continues in Fly mode. It starts with driving or camera input and follows the sound and pause controls, resuming from its current position.
-
-Palm Cove sits on an island with sandy beaches and a sloping seabed. Gentle animated swells and moving highlights give the ocean motion; Palm Cove also has slowly washing shoreline foam. On Palm Cove, a coastal swell raises and lowers the visible surface by up to 0.55 metres, covering and exposing sand; the foam follows that water–terrain intersection. Exposed sand stays darker and slightly glossy after the water retreats, then gradually dries. The gameplay flooding threshold remains unchanged. Water cushions the car's entry and applies buoyancy at its four corners, following the animated surface. Trapped air supports it for about two seconds, then buoyancy fades over three seconds and the car sinks to the seabed. Resetting or dropping the car from flight restores its buoyancy. Submerging the front engine intake for 0.2 seconds floods it. A flooded engine stays off, stops checkpoint progress, and requires Restart on shore or R to recover. Jumps over water remain safe while the intake stays above the surface.
-
-Ridge Trail retains its loop around a central rocky mountain, surrounded by wooded foothills, rocky ridges, and distant pale summits. The central formation has an offset, uneven crest, eroded gullies, ledges, and loose outcrops at its foot. Its stone colors vary with height and slope; the terrain and rock details stay clear of the track and its six-metre shoulders. The shape and outcrops are authored in `app/ridge-environment.ts`. A small winding river runs from a rocky spring to a pool beside the valley. A timber bridge with wooden rails and stone abutments carries the track over its carved banks; the landings blend into the existing road. The river has animated surface ripples and uses the same car buoyancy, flooding, and splash sound as the island water. Its geometry and layout live in `app/ridge-river.ts`. The outer ranges extend the drivable terrain and stay clear of the track and its shoulders. Climbing spends forward momentum against gravity. Tire grip and chassis collisions limit steep approaches, with no mountain-specific slowdown zone. Entering water throws a spray and expanding rings; smaller ripples trail the car in the shallows. Effects pause with the game and clear on reset.
-
-Visible axles follow the wheels through suspension travel and front-end crumpling. A detached wheel leaves a shortened shaft behind.
-
-Hard body-first ground impacts use the contact-point speed, including the car’s rotation, to damage or wreck the car; ordinary wheel landings are absorbed by the suspension. Crashes play layered impact sounds with volume and tone based on collision strength. Bodywork crumples around the contact point, glass cracks, and repeated or severe hits can tear off nearby bumpers, lights, mirrors and trim. Loose parts retain some of the car's momentum, tumble, bounce and settle on the terrain. Reset repairs the original model and clears debris. This is localized visual deformation with simple debris physics, rather than a full soft-body vehicle simulation.
-
-Hard chassis impacts against trees, rocks, or terrain fill the damage meter beneath the speedometer. Damage depends on speed into the obstacle, so glancing hits are less costly. Small crashes accumulate; a full-speed head-on crash can wreck the car immediately. At 100% damage the car loses drive and brakes to a stop, and checkpoint progress and timing stop. Use Reset car, R, or Repair & restart to repair it and return to the start.
-
-Models are in `public/models`; gameplay and Three.js rendering are in `app/game.ts`, and the HUD markup is in `index.html` with event bindings and status updates in `app/main.ts`. Movement uses Rapier rigid-body physics at 120 Hz with interpolated rendering. The road is painted onto rolling terrain, so the driving surface has no overlapping road mesh. Four raycast wheels apply suspension, steering, braking, and grip at their individual contact points. Rear-wheel drive loses traction when the rear tires lift; raised front tires cannot steer the body. Progressive bump stops absorb hard landings. Nose-first landings load the front suspension first, then swing the rear wheels down into a second impact. The same forces produce compression and settling, without a scripted upward kick or forced leveling. The car keeps angular momentum in flight. Acceleration is 12 m/s² and top speed is 95 km/h, with gentler steering at high speed. Each tire needs loaded ground contact to exert force or leave a skid mark. After a jump, each tire regains grip over 0.2 seconds while suspension contact remains immediate, allowing a brief slide as the car settles. At speed, braking while turning reduces tire grip: the car slides in its original direction as the nose turns, leaving tire marks. Release the brake or countersteer to regain control.
-
-Shared terrain rendering is in `app/terrain.ts`, route generation is in `app/map-route.ts`, map definitions and island terrain are in `app/maps.ts` and `app/tropical-map.ts`, and Ridge Trail’s surrounding ranges are in `app/ridge-environment.ts`; the Rapier world, vehicle, and tire forces are in `app/vehicle-physics.ts`. The physics engine runs locally in WebAssembly; no backend state is required.
-
-Deploy to AWS with `AWS_PROFILE=roventskij npm run deploy:s3`. This builds a static export, uploads the public files to the `papaya-drive-779045249836` S3 bucket in `eu-north-1`, and refreshes CloudFront distribution `E1XV070WW0P6T`. The bucket blocks public access; CloudFront serves the game over HTTPS using origin access control. Build the static files without deploying with `npm run build:static` (output: `dist/`).
-
-The HUD uses [Fredoka](https://fonts.google.com/specimen/Fredoka), bundled locally in `public/fonts` under the included SIL Open Font License.
-
-Ridge Trail and Palm Cove use the same sun-shadow settings: two 4096² cascades, with a detailed near cascade ending at 32 metres of camera depth and a wider cascade reaching 160 metres, blended together. `app/cascaded-sun.ts` uses Three's CSM addon, preserves the custom terrain and baked-lighting shaders, and registers new crash-debris materials as they appear. The cascades align to whole texels to reduce shimmering. Both maps use the nine-sample PCF filter in `app/sun-shadows.ts` and the same slightly softer ground filter. The far cascade has a larger bias to avoid self-shadowing stripes on mountain faces.
-
-For comparison, add `?shadows=single` (or `&shadows=single` alongside `?debug=1`) to use the previous stabilized 4096² map covering 152 metres. Cascades add one shadow map and one shadow rendering pass. `tests/cascaded-sun.test.ts` checks shader composition, new materials, resizing and resource cleanup; `tests/sun-shadows.test.ts` checks single-map grid stability and PCF shader compatibility.
-
-In Chrome at 1440 × 900 on an M4 Max, matched Palm Cove views held 60 FPS with both approaches. Average GPU time increased from 1.88 to 2.27 ms near the grove and from 1.75 to 2.01 ms in the wide view. These desktop measurements do not establish performance on mobile GPUs.
-
-### Baked map lighting
-
-Palm Cove and Ridge Trail share the same baked GI pipeline in `app/baked-lighting.ts`: sky visibility and three diffuse bounces of sunlight, computed offline with Blender Cycles. Palm Cove covers 441 fixed meshes, including the shoreline, mountain and jetty; Ridge Trail covers 1,510, including its trees, rocks, grass, mushrooms, mountain ranges and timber bridge. Scenery blends at 75% strength with the ambient fill to preserve the bright art style; ground lightmaps use 100% strength on Palm Cove and 90% on Ridge Trail, where a little ambient fill softens the shaded ground. Live sunlight and cascaded shadows remain active. Cars, water and movable props are excluded from the bake.
-
-Lighting is enabled during normal play. With `?debug=1`, **Baked lighting: On/Off** compares it with the original lighting without moving the camera or resetting the race. Detailed scenery uses vertex irradiance; terrain uses denoised half-float RGB EXR lightmaps with separate UVs, mipmaps and anisotropic filtering. This avoids stretching lighting across the terrain's 1.25 m triangles.
-
-| Map         | Ground lightmap | Coverage                      | Vertex data | Ground texture | GPU texture memory, including mipmaps |
-| ----------- | --------------- | ----------------------------- | ----------- | -------------- | ------------------------------------- |
-| Palm Cove   | 2048²           | 170 × 145 m, about 8 cm/texel | 2.42 MB     | 3.71 MB        | 43 MiB                                |
-| Ridge Trail | 4096²           | 310 × 310 m, about 8 cm/texel | 4.98 MB     | 15.68 MB       | 171 MiB                               |
-
-Ridge uses a larger texture to maintain the island's ground-lighting detail across its larger terrain. Its lossless PIZ compression reduces transfer size without changing decoded lighting values; Palm Cove retains ZIP compression. Combined lighting assets are approximately 4.47 MB / 16.77 MB with gzip for Palm Cove / Ridge Trail. Only the active map's bake is loaded, and its resources are disposed when switching maps. There are no additional GI render passes. Each scenery instance has its own lighting attribute; compatible materials are shared. If a bake cannot load, or its geometry/placement signatures no longer match, the game falls back to the original lighting.
-
-On an Apple M4 Max in Chrome at 1440 × 900, Ridge Trail's start view held 60 FPS with GI on and off; average GPU render time was approximately 2.17 / 2.19 ms across two runs of each, within measurement variation. A wide Palm Cove view previously measured about 2.22 / 1.82 ms with baked lighting on/off, also at 60 FPS. These desktop measurements do not establish mobile performance; the larger Ridge texture mainly increases loading cost and GPU memory use.
-
-Rebake after changing a map's scenery, terrain, models or sun lighting. Use `ridge` for Ridge Trail or `island` for Palm Cove:
-
-1. Run `npm run dev`, open the game, and run this in the browser console:
-
-   ```js
-   await (
-     await import('/scripts/export-lighting.ts')
-   ).downloadLighting('ridge');
-   ```
-
-2. Put the downloaded `ridge-lighting-scene.json` in `work/`.
-3. Run Blender with `--background --python scripts/bake-lighting.py -- --map ridge`. This writes `public/lighting/ridge.json` and `public/lighting/ridge-ground.exr`. Scenery uses 128 samples; terrain uses 256 samples followed by compositor denoising. Append `--terrain-only` to regenerate just the terrain texture while preserving an existing scenery bake. Use a full rebake after changing geometry, placement or lighting. No Blender process is needed during gameplay.
-4. Run `node --experimental-strip-types --test tests/baked-lighting.test.ts` to check both maps' bake coverage, signatures, lightmap dimensions/HDR values and terrain UV coverage against current assets and placements. `app/ridge-scenery.ts` supplies the same deterministic woodland placements to the game and exporter. Ridge has 181 sparse grass tufts beside the trail, clear of the road, river and obstacles. Both maps use `app/grass.ts` for the same tapered six-blade style, batched into one non-colliding mesh per map. Twelve mushrooms (six fly agarics and six king boletes) occupy just eight separated spots near trees; `app/mushrooms.ts` batches their faceted caps, stems and pale flecks into one non-colliding mesh.
-
-Palm cove’s mountain is authored in Blender: `assets/palm-cove-mountain.blend`, exported as `public/models/mountain-palm-cove.glb`. It uses faceted rock slabs with shallow surface weathering and carved recesses in the largest rock, a vertical color gradient from cool slate at the base to pale limestone at the summit, and clusters of smaller broken rocks around its foot. Ground fragments are seated using the game’s terrain height and kept clear of the beach lane. A tilted roof slab and leaning sea stack form the driving passage. The visible low-poly surfaces also supply collision. Buried feet and scattered talus meet the island’s earth mounds and mottled stone-to-grass transition. Rebuild the asset with Blender’s `--background --python scripts/build-palm-mountain.py`.
-
-Papaya City follows curving avenues through a mountain valley, with T junctions, linked gardens, level building sites, and uphill streets spanning roughly 20 metres of elevation. It has an eight-checkpoint circuit, shops and apartments, pitched-roof terraces, offices, a clock-tower town hall, a fountain park, and a market square. Crosswalks, awnings, signs, balconies, rooftop equipment, lamps, traffic signals, hydrants, benches, trees, and parked cars give the blocks detail. The Blender source is `assets/papaya-city.blend`; rebuild `public/models/city-papaya.glb` with `scripts/build-papaya-city.py`. Meshes are batched by material. Solid buildings, curbs, and street furniture have collision; road paint and facade decoration are visual details. Asphalt, raised sidewalks, and curb faces are Blender meshes, joined across intersections and matched to the terrain. Crosswalks are limited to seven civic and main-road junctions. Parked cars keep a rigid shape while following street direction and slope. `scripts/build-city-streets.ts` builds the street polygons during the Blender export. The street route and ground are in `app/city-map.ts`; `app/city-layout.ts` supplies the shared layout and elevation data used by the game and Blender exporter. Fly mode can inspect the city and drop the car onto its streets or rooftops.
+- [Development, assets and deployment](docs/development.md)
+- [Shadows and lighting bakes](docs/lighting.md)
+- [Audio credits](public/audio/credits.html) · [Fredoka font license](public/fonts/Fredoka-LICENSE.txt)
