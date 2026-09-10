@@ -2,7 +2,13 @@
 
 A small Vite + TypeScript driving game with Three.js and Rapier using the Blender car, rocks, woodland trees, and palm trees from the adjacent asset folders.
 
-![Papaya Drive: the orange car skidding through the forest track, with checkpoints and a damage meter.](docs/gameplay.png)
+![Ridge Trail: drifting through the forest toward a checkpoint.](docs/ridge-trail-forest.png)
+
+![Ridge Trail: racing around the mountain with woodland and mushrooms beside the track.](docs/ridge-trail-mountain.png)
+
+![Palm Cove: driving past the jetty toward the rock arch.](docs/palm-cove-harbour.png)
+
+![Palm Cove: racing along the coast between palm trees and the sea.](docs/palm-cove-coast.png)
 
 [Play Papaya Drive](https://d2e17ltpesncil.cloudfront.net)
 
