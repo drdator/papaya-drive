@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="Take a low-poly hatchback through mountain valleys, a tropical island, or colorful city streets. Find eight golden checkpoints and enjoy the drive."
+      content="Take a low-poly hatchback through mountain valleys or a tropical island. Race three laps, follow the golden checkpoints, and beat your best time."
     />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link
@@ -30,6 +30,9 @@
         </symbol>
         <symbol id="icon-fly" viewBox="0 0 24 24">
           <path d="m3 10 18-7-7 18-3-8Zm8 3L21 3" />
+        </symbol>
+        <symbol id="icon-leaderboard" viewBox="0 0 24 24">
+          <path d="M3 20V10h6m0 10V4h6v16m0-7h6v7ZM3 20h18" />
         </symbol>
         <symbol id="icon-sound" viewBox="0 0 24 24">
           <path d="M11 5 6 9H3v6h3l5 4Z" />
@@ -75,10 +78,22 @@
               Maps
             </button>
             <button
+              id="scores"
+              class="map-button"
+              aria-haspopup="dialog"
+              aria-controls="scores-menu"
+            >
+              <svg class="icon" aria-hidden="true">
+                <use href="#icon-leaderboard" />
+              </svg>
+              Leaderboard
+            </button>
+            <button
               id="fly"
               class="map-button"
               aria-label="Fly around map"
               aria-pressed="false"
+              hidden
               disabled
             >
               <svg class="icon" aria-hidden="true">
@@ -90,7 +105,7 @@
           <div class="route">
             <div class="trail-name">
               <span id="trail-name">Ridge trail</span>
-              <span class="lap-badge">Lap <span id="lap">1</span></span>
+              <span class="lap-badge">Lap <span id="lap">1 / 3</span></span>
             </div>
             <div class="trail-progress" aria-label="Checkpoint progress">
               <div class="dots" aria-hidden="true">
@@ -101,10 +116,21 @@
               <strong id="checkpoints" aria-label="Checkpoints">0 / 8</strong>
             </div>
             <div class="timing">
-              <span id="time">0:00.0</span><span id="best">Best —</span>
+              <span>Race <strong id="time">0:00.00</strong></span>
+              <span id="best">Best —</span>
+            </div>
+            <div class="lap-timing">
+              <span>Lap <span id="lap-time">0:00.00</span></span
+              ><strong id="race-mode">3 laps to finish</strong>
             </div>
           </div>
         </div>
+        <output
+          id="lap-split"
+          class="lap-split"
+          aria-live="polite"
+          hidden
+        ></output>
         <output id="loading" class="message">
           <span class="message-token" aria-hidden="true"
             ><svg class="icon"><use href="#icon-heart" /></svg
@@ -208,8 +234,8 @@
             <button
               id="reset"
               class="game-button"
-              aria-label="Reset car"
-              data-tooltip="Reset car · R"
+              aria-label="Restart race"
+              data-tooltip="Restart race · R"
             >
               <svg class="icon" aria-hidden="true">
                 <use href="#icon-reset" />
@@ -266,7 +292,8 @@
           <strong>Palm cove</strong>
           <span>Beach loop &amp; a towering rock arch</span>
         </button>
-        <button data-map="city" aria-pressed="false">
+        <!-- Keep the city available for development, but hide it until ready. -->
+        <button data-map="city" aria-pressed="false" hidden>
           <strong>Papaya city</strong>
           <span>Winding streets &amp; hillside neighborhoods</span>
         </button>
@@ -274,6 +301,33 @@
       <form method="dialog">
         <button class="map-close">Back to driving</button>
       </form>
+    </dialog>
+    <dialog
+      id="scores-menu"
+      class="map-menu scores-menu"
+      aria-labelledby="scores-title"
+      aria-describedby="scores-note"
+    >
+      <p id="scores-track" class="scores-track">Ridge trail</p>
+      <h1 id="scores-title">Top 5 times</h1>
+      <section id="race-result" hidden aria-label="Race result">
+        <p id="result-time" class="result-time"></p>
+        <ol id="result-laps" class="result-laps" aria-label="Lap times"></ol>
+        <p id="result-message"></p>
+      </section>
+      <div class="scores-actions">
+        <button id="race-again" class="map-close" hidden>Race again</button>
+        <button id="scores-close" class="map-close">Back to driving</button>
+      </div>
+      <h2 id="scores-heading">Three-lap races</h2>
+      <ol
+        id="scores-list"
+        class="scores-list"
+        aria-labelledby="scores-heading"
+      ></ol>
+      <p id="scores-note" class="scores-note">
+        Saved in this browser, separately for each track.
+      </p>
     </dialog>
     <script type="module" src="/app/main.ts"></script>
   </body>

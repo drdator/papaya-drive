@@ -1,5 +1,11 @@
 import { createGame, type GameStatus } from './game';
 import { maps, type MapId } from './maps';
+import {
+  formatRaceTime as timeLabel,
+  raceLaps,
+  checkpointsPerLap,
+  type RaceState,
+} from './race';
 
 let activeMap: MapId = 'ridge';
 let latestStatus: GameStatus | undefined;
@@ -8,6 +14,20 @@ const touchScreen = matchMedia('(pointer: coarse), (max-width: 700px)');
 const ui = {
   viewport: document.querySelector<HTMLDivElement>('.viewport')!,
   lap: document.getElementById('lap')!,
+  lapTime: document.getElementById('lap-time')!,
+  split: document.getElementById('lap-split')!,
+  raceMode: document.getElementById('race-mode')!,
+  scores: document.querySelector<HTMLButtonElement>('#scores')!,
+  scoresMenu: document.querySelector<HTMLDialogElement>('#scores-menu')!,
+  scoresTrack: document.getElementById('scores-track')!,
+  scoresTitle: document.getElementById('scores-title')!,
+  scoresList: document.getElementById('scores-list')!,
+  scoresClose: document.getElementById('scores-close')!,
+  result: document.getElementById('race-result')!,
+  resultTime: document.getElementById('result-time')!,
+  resultLaps: document.getElementById('result-laps')!,
+  resultMessage: document.getElementById('result-message')!,
+  raceAgain: document.getElementById('race-again')!,
   checkpoints: document.getElementById('checkpoints')!,
   dots: document.querySelectorAll('.dots span'),
   time: document.getElementById('time')!,
@@ -41,8 +61,87 @@ const ui = {
   dashboard: document.querySelector<HTMLElement>('.dashboard')!,
 };
 
-function timeLabel(seconds: number) {
-  return `${Math.floor(seconds / 60)}:${(seconds % 60).toFixed(1).padStart(4, '0')}`;
+ui.fly.hidden = new URLSearchParams(location.search).get('debug') !== '1';
+
+let resultShownId: string | undefined;
+let renderedLeaderboard: RaceState['leaderboard'] | undefined;
+let renderedResultId: string | undefined;
+let resumeAfterScores = false;
+
+function renderScores(status: GameStatus) {
+  const race = status.race;
+  setText(ui.scoresTrack, maps[activeMap].name);
+  setText(
+    ui.scoresTitle,
+    race.finished
+      ? race.practice
+        ? 'Practice finished'
+        : race.personalBest
+          ? 'New personal best!'
+          : 'Race finished!'
+      : 'Top 5 times',
+  );
+  ui.result.hidden = !race.finished;
+  ui.raceAgain.hidden = !race.finished;
+  setText(ui.scoresClose, race.finished ? 'Back to track' : 'Back to driving');
+  if (race.result) {
+    setText(ui.resultTime, timeLabel(race.result.time));
+    const rank = race.leaderboard.findIndex(
+      (entry) => entry.id === race.result?.id,
+    );
+    setText(
+      ui.resultMessage,
+      race.practice
+        ? 'Practice run — not ranked. Reset to start a timed race.'
+        : !race.saved
+          ? 'Couldn’t save to this browser. Your result is shown here.'
+          : rank >= 0
+            ? `#${rank + 1} on this track’s top five.`
+            : 'Outside the top five. Give it another go!',
+    );
+  }
+  if (
+    renderedLeaderboard !== race.leaderboard ||
+    renderedResultId !== race.result?.id
+  ) {
+    renderedLeaderboard = race.leaderboard;
+    renderedResultId = race.result?.id;
+    ui.scoresList.replaceChildren(
+      ...Array.from({ length: 5 }, (_, index) => {
+        const entry = race.leaderboard[index];
+        const row = document.createElement('li');
+        const rank = document.createElement('span');
+        rank.className = 'score-rank';
+        rank.textContent = String(index + 1).padStart(2, '0');
+        const time = document.createElement('strong');
+        time.textContent = entry ? timeLabel(entry.time) : '—';
+        const label = document.createElement('span');
+        label.textContent = entry
+          ? entry.id === race.result?.id
+            ? 'This race'
+            : new Date(entry.date).toLocaleDateString(undefined, {
+                month: 'short',
+                day: 'numeric',
+              })
+          : 'No time yet';
+        if (entry && entry.id === race.result?.id)
+          row.setAttribute('aria-current', 'true');
+        row.append(rank, time, label);
+        return row;
+      }),
+    );
+    ui.resultLaps.replaceChildren(
+      ...race.laps.map((lap, index) => {
+        const row = document.createElement('li');
+        const label = document.createElement('span');
+        label.textContent = `Lap ${index + 1}`;
+        const time = document.createElement('strong');
+        time.textContent = timeLabel(lap);
+        row.append(label, time);
+        return row;
+      }),
+    );
+  }
 }
 
 function setText(element: HTMLElement, text: string) {
@@ -52,6 +151,7 @@ function setText(element: HTMLElement, text: string) {
 function updateStatus(status: GameStatus) {
   latestStatus = status;
   const map = maps[activeMap];
+  const race = status.race;
   setText(ui.trailName, map.name);
   setText(
     ui.hint,
@@ -59,9 +159,15 @@ function updateStatus(status: GameStatus) {
       ? touchScreen.matches
         ? 'Arrows move; + / − change height. Drive drops the car.'
         : 'WASD move · Q/E height · Drag to look · Drive drops car'
-      : map.hint,
+      : race.finished
+        ? 'Race finished · Leaderboard for results · R to race again'
+        : race.practice
+          ? 'Practice — times won’t be saved. R starts a fresh race.'
+          : `3 laps to finish. ${map.hint}`,
   );
-  ui.fly.disabled = !status.ready;
+  ui.fly.disabled = !status.ready || race.finished;
+  ui.pause.toggleAttribute('disabled', !status.ready || race.finished);
+  ui.scores.disabled = !status.ready;
   ui.fly.setAttribute('aria-pressed', String(status.flying));
   ui.fly.setAttribute(
     'aria-label',
@@ -69,19 +175,28 @@ function updateStatus(status: GameStatus) {
   );
   setText(ui.flyLabel, status.flying ? 'Drive' : 'Fly');
   ui.flyHeight.hidden = !status.flying;
-  ui.dashboard.hidden = status.flying;
+  ui.dashboard.hidden = status.flying || race.finished;
   ui.maps.disabled = !status.ready && !status.error;
   const wrecked = status.damage >= 100 || status.flooded;
-  setText(ui.lap, String(status.lap));
-  setText(ui.checkpoints, `${status.gate} / 8`);
+  setText(ui.lap, `${race.lap} / ${raceLaps}`);
+  setText(ui.lapTime, timeLabel(race.lapTime));
+  setText(
+    ui.raceMode,
+    race.practice
+      ? 'Practice · not ranked'
+      : race.finished
+        ? 'Finished'
+        : '3 laps to finish',
+  );
+  setText(ui.checkpoints, `${race.gate} / ${checkpointsPerLap}`);
   ui.dots.forEach((dot, i) => {
-    dot.classList.toggle('done', i < status.gate);
-    dot.classList.toggle('current', i === status.gate);
+    dot.classList.toggle('done', i < race.gate);
+    dot.classList.toggle('current', i === race.gate);
   });
-  setText(ui.time, timeLabel(status.time));
+  setText(ui.time, timeLabel(race.time));
   setText(
     ui.best,
-    `Best ${status.best === null ? '—' : timeLabel(status.best)}`,
+    `Best ${race.leaderboard[0] ? timeLabel(race.leaderboard[0].time) : '—'}`,
   );
   ui.loading.hidden = status.ready;
   setText(
@@ -100,11 +215,42 @@ function updateStatus(status: GameStatus) {
   );
   setText(ui.repair, status.flooded ? 'Restart on shore' : 'Repair & restart');
   ui.paused.hidden =
-    !status.ready || !status.paused || (wrecked && !status.flying);
+    !status.ready ||
+    !status.paused ||
+    race.finished ||
+    (wrecked && !status.flying);
   ui.hint.hidden =
     !status.ready ||
     status.paused ||
-    (!status.flying && (status.started || wrecked));
+    (!status.flying &&
+      !race.finished &&
+      !race.practice &&
+      (race.started || wrecked));
+  ui.split.hidden =
+    !race.split ||
+    race.splitRemaining === 0 ||
+    status.paused ||
+    race.finished ||
+    race.practice;
+  if (race.split) {
+    const { lap, time, delta } = race.split;
+    const comparison =
+      delta === null
+        ? ''
+        : Math.abs(delta) < 0.005
+          ? ' · Level with your best'
+          : ` · ${Math.abs(delta).toFixed(2)}s ${delta < 0 ? 'ahead' : 'behind'} your best`;
+    setText(ui.split, `Lap ${lap} · ${timeLabel(time)}${comparison}`);
+  }
+  if (ui.scoresMenu.open) renderScores(status);
+  if (race.result && resultShownId !== race.result.id) {
+    resultShownId = race.result.id;
+    resumeAfterScores = false;
+    renderScores(status);
+    if (!ui.scoresMenu.open) ui.scoresMenu.showModal();
+    ui.scoresMenu.scrollTop = 0;
+    ui.raceAgain.focus({ preventScroll: true });
+  }
   for (const [key, driving, flying] of [
     ['ArrowLeft', 'Steer left', 'Fly left'],
     ['ArrowRight', 'Steer right', 'Fly right'],
@@ -161,6 +307,37 @@ ui.retry.addEventListener('click', () => location.reload(), options);
 ui.repair.addEventListener('click', () => game.reset(), options);
 ui.reset.addEventListener('click', () => game.reset(), options);
 ui.resume.addEventListener('click', () => game.togglePause(), options);
+ui.scores.addEventListener(
+  'click',
+  () => {
+    if (!latestStatus) return;
+    resumeAfterScores = !latestStatus.paused && !latestStatus.race.finished;
+    if (resumeAfterScores) game.togglePause();
+    renderScores(latestStatus);
+    ui.scoresMenu.showModal();
+  },
+  options,
+);
+ui.scoresClose.addEventListener('click', () => ui.scoresMenu.close(), options);
+ui.scoresMenu.addEventListener(
+  'close',
+  () => {
+    if (resumeAfterScores && latestStatus?.paused) game.togglePause();
+    resumeAfterScores = false;
+    ui.viewport.querySelector('canvas')?.focus();
+  },
+  options,
+);
+ui.raceAgain.addEventListener(
+  'click',
+  () => {
+    resumeAfterScores = false;
+    ui.scoresMenu.close();
+    game.reset();
+    ui.viewport.querySelector('canvas')?.focus();
+  },
+  options,
+);
 ui.pause.addEventListener('click', () => game.togglePause(), options);
 ui.sound.addEventListener('click', () => game.toggleMute(), options);
 ui.fly.addEventListener(

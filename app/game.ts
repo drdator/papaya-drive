@@ -38,17 +38,19 @@ import {
 } from './ridge-river';
 import { createCityGround } from './city-map';
 import { createTropicalScenery } from './tropical-scenery';
+import {
+  createRace,
+  raceStorage,
+  checkpointsPerLap,
+  type RaceState,
+} from './race';
 
 export type GameStatus = {
   ready: boolean;
   speed: number;
-  gate: number;
-  lap: number;
-  time: number;
-  best: number | null;
+  race: RaceState;
   paused: boolean;
   error: string | null;
-  started: boolean;
   airborne: boolean;
   skidding: boolean;
   damage: number;
@@ -64,7 +66,7 @@ export type GameControls = {
   toggleFly(): void;
   setKey(key: string, down: boolean): void;
 };
-const gateCount = 8;
+const gateCount = checkpointsPerLap;
 const step = 1 / 120;
 
 export function createGame(
@@ -80,16 +82,13 @@ export function createGame(
     mountainAt: mountainHeight,
     tropical,
   } = map.terrain;
+  const race = createRace(mapId, raceStorage());
   const status: GameStatus = {
     ready: false,
     speed: 0,
-    gate: 0,
-    lap: 1,
-    time: 0,
-    best: null,
+    race: race.state,
     paused: false,
     error: null,
-    started: false,
     airborne: false,
     skidding: false,
     damage: 0,
@@ -144,16 +143,16 @@ export function createGame(
   container.appendChild(renderer.domElement);
   scene.add(new THREE.HemisphereLight('#f6f2db', '#6f8263', 2.4));
   const sun = new THREE.DirectionalLight('#fff0ce', 3.1);
-  sun.position.set(-25, 42, 18);
+  sun.position.set(-50, 84, 36);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(2048, 2048);
+  sun.shadow.mapSize.set(4096, 4096);
   Object.assign(sun.shadow.camera, {
-    left: -38,
-    right: 38,
-    top: 38,
-    bottom: -38,
+    left: -76,
+    right: 76,
+    top: 76,
+    bottom: -76,
     near: 1,
-    far: 120,
+    far: 240,
   });
   sun.shadow.normalBias = 0.025;
   sun.shadow.bias = -0.00015;
@@ -256,16 +255,49 @@ export function createGame(
   if (river)
     gatePositions[0].set(bridge.x, terrainHeight(bridge.x, bridge.z), bridge.z);
   function placeGate() {
+    checkpoint.visible = !race.state.finished;
+    if (race.state.finished) return;
     const heading =
-      river && status.gate === 0
+      river && race.state.gate === 0
         ? Math.PI / 2 + bridge.angle
-        : routeHeading((status.gate + 1) / gateCount);
-    const p = gatePositions[status.gate];
+        : routeHeading((race.state.gate + 1) / gateCount);
+    const p = gatePositions[race.state.gate];
     const surface = groundUnderCar(p.x, p.z, heading, terrainHeight);
     checkpoint.position.set(p.x, surface.height, p.z);
     checkpoint.rotation.set(surface.pitch, heading, surface.bank, 'YXZ');
   }
   placeGate();
+  const finish = new THREE.Group();
+  const finishPoint = route(0);
+  const finishHeading = routeHeading(0);
+  const finishSurface = groundUnderCar(
+    finishPoint.x,
+    finishPoint.z,
+    finishHeading,
+    terrainHeight,
+  );
+  finish.position.set(
+    finishPoint.x,
+    finishSurface.height + 0.015,
+    finishPoint.z,
+  );
+  finish.rotation.set(
+    finishSurface.pitch,
+    finishHeading,
+    finishSurface.bank,
+    'YXZ',
+  );
+  const finishTile = new THREE.PlaneGeometry(0.5, 0.5).rotateX(-Math.PI / 2);
+  const finishColors = ['#fffbe9', '#254d40'].map(
+    (color) => new THREE.MeshBasicMaterial({ color }),
+  );
+  for (let x = 0; x < 12; x++)
+    for (let z = 0; z < 2; z++) {
+      const tile = new THREE.Mesh(finishTile, finishColors[(x + z) % 2]);
+      tile.position.set((x - 5.5) * 0.5, 0, (z - 0.5) * 0.5);
+      finish.add(tile);
+    }
+  scene.add(finish);
 
   const car = new THREE.Group();
   car.rotation.order = 'YXZ';
@@ -446,9 +478,7 @@ export function createGame(
     car.position.copy(position);
     car.quaternion.copy(rotation);
     status.speed = 0;
-    status.time = 0;
-    status.gate = 0;
-    status.started = false;
+    race.reset();
     status.airborne = false;
     status.skidding = false;
     status.paused = false;
@@ -477,7 +507,7 @@ export function createGame(
     onStatus({ ...status });
   }
   function togglePause() {
-    if (!status.ready) return;
+    if (!status.ready || race.state.finished) return;
     status.paused = !status.paused;
     if (status.paused) audio.silence();
     else audio.unlock();
@@ -485,7 +515,8 @@ export function createGame(
     onStatus({ ...status });
   }
   function toggleFly() {
-    if (!status.ready) return;
+    if (!status.ready || race.state.finished) return;
+    race.useFly();
     stopOrbit();
     keys.clear();
     status.flying = !status.flying;
@@ -576,8 +607,8 @@ export function createGame(
     ' ',
   ]);
   function setKey(key: string, down: boolean) {
-    if (down && !status.paused) audio.unlock();
-    if (down && !status.paused) keys.add(key);
+    if (down && !status.paused && !race.state.finished) audio.unlock();
+    if (down && !status.paused && !race.state.finished) keys.add(key);
     else keys.delete(key);
   }
   function keyDown(event: KeyboardEvent) {
@@ -606,7 +637,7 @@ export function createGame(
     stopOrbit();
     audio.silence();
     keys.clear();
-    if (status.ready && !status.paused) {
+    if (status.ready && !status.paused && !race.state.finished) {
       status.paused = true;
       onStatus({ ...status });
     }
@@ -835,7 +866,7 @@ export function createGame(
     });
 
   function simulate(dt: number) {
-    if (!physics) return;
+    if (!physics || race.state.finished) return;
     previousPosition.copy(position);
     previousRotation.copy(rotation);
     previousSteering = steering;
@@ -853,8 +884,7 @@ export function createGame(
       ? 0
       : Number(keys.has('a') || keys.has('ArrowLeft')) -
         Number(keys.has('d') || keys.has('ArrowRight'));
-    if (gas || reverse) status.started = true;
-    if (status.started && !wrecked) status.time += dt;
+    if (!wrecked) race.advance(dt, gas || reverse);
     const waterSurface = waterSurfaceAt(position.x, position.z);
     const state = physics.step({ gas, reverse, brake, turn }, dt, waterSurface);
     readPhysics();
@@ -919,23 +949,33 @@ export function createGame(
         skidding: dry && wheel.contact && wheel.skid > 0.15,
       })),
     );
-    const gate = gatePositions[status.gate];
+    const gate = gatePositions[race.state.gate];
+    const beforeFinish =
+      (previousPosition.x - finishPoint.x) * Math.sin(finishHeading) +
+      (previousPosition.z - finishPoint.z) * Math.cos(finishHeading);
+    const afterFinish =
+      (position.x - finishPoint.x) * Math.sin(finishHeading) +
+      (position.z - finishPoint.z) * Math.cos(finishHeading);
     // Passing above the road still counts when a crest carries the car through an arch.
     if (
+      race.state.started &&
       status.damage < 100 &&
       !status.flooded &&
+      (race.state.gate !== gateCount - 1 ||
+        (beforeFinish < 0 && afterFinish >= 0)) &&
       Math.hypot(position.x - gate.x, position.z - gate.z) < 3.3 &&
       // The bridge checkpoint must be crossed on the deck, not in the river below.
-      (!river || status.gate !== 0 || position.y > gate.y - 0.5) &&
+      (!river || race.state.gate !== 0 || position.y > gate.y - 0.5) &&
       Math.abs(position.y - gate.y) < 5
     ) {
       audio.checkpoint();
-      status.gate++;
-      if (status.gate === gateCount) {
-        status.best = Math.min(status.best ?? Infinity, status.time);
-        status.lap++;
-        status.time = 0;
-        status.gate = 0;
+      race.checkpoint(race.state.gate);
+      if (race.state.finished) {
+        keys.clear();
+        audio.silence();
+        previousPosition.copy(position);
+        previousRotation.copy(rotation);
+        onStatus({ ...status });
       }
       placeGate();
     }
@@ -993,15 +1033,16 @@ export function createGame(
     frame = requestAnimationFrame(animate);
     const dt = previousTime ? Math.min((time - previousTime) / 1000, 0.1) : 0;
     previousTime = time;
-    if (!status.paused) {
+    if (!status.paused && !race.state.finished) {
       waterTime.value += dt;
       if (floatingBoats) {
         floatingBoats.update(waterTime.value);
         movingProps.forEach((update) => update());
       }
     }
-    const driving = status.ready && !status.paused && !status.flying;
-    if (status.ready && !status.paused) {
+    const driving =
+      status.ready && !status.paused && !status.flying && !race.state.finished;
+    if (status.ready && !status.paused && !race.state.finished) {
       accumulator += dt;
       while (accumulator >= step) {
         if (driving) simulate(step);
@@ -1047,8 +1088,12 @@ export function createGame(
           physics?.state.wheels.slice(2).some((wheel) => wheel.contact) ??
           false,
         skid: water.depth < 0.1 ? tireSkid : 0,
-        running: driving && status.damage < 100 && !status.flooded,
-        active: driving,
+        running:
+          driving &&
+          !race.state.finished &&
+          status.damage < 100 &&
+          !status.flooded,
+        active: driving && !race.state.finished,
         musicActive: status.ready && !status.paused,
       },
       dt,
@@ -1111,9 +1156,9 @@ export function createGame(
     }
     const lightTarget = status.flying ? camera.position : car.position;
     sun.position.set(
-      lightTarget.x - 25,
-      lightTarget.y + 42,
-      lightTarget.z + 18,
+      lightTarget.x - 50,
+      lightTarget.y + 84,
+      lightTarget.z + 36,
     );
     sun.target.position.copy(lightTarget);
     gatePad.material.opacity = 0.22 + Math.sin(time * 0.003) * 0.07;
