@@ -303,6 +303,14 @@ export function createTerrain(
   );
   if (profile.tropical) {
     terrain.material.onBeforeCompile = (shader) => {
+      // Smooth shadow-map stair steps on the ground without softening the palms.
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <shadowmap_pars_fragment>',
+        THREE.ShaderChunk.shadowmap_pars_fragment.replace(
+          'float radius = shadowRadius * texelSize.x;',
+          'float radius = max(shadowRadius, 2.0) * texelSize.x;',
+        ),
+      );
       shader.uniforms.waterTime = time;
       shader.uniforms.restingSeaLevel = new THREE.Uniform(seaLevel);
       shader.vertexShader = shader.vertexShader

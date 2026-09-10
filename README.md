@@ -48,6 +48,30 @@ Deploy to AWS with `AWS_PROFILE=roventskij npm run deploy:s3`. This builds a sta
 
 The HUD uses [Fredoka](https://fonts.google.com/specimen/Fredoka), bundled locally in `public/fonts` under the included SIL Open Font License.
 
+Sun shadows use one 4096² PCF map covering 152 metres. `app/sun-shadows.ts` aligns the moving shadow camera to whole texels in the light's image plane, preserving the sun direction while reducing shimmering. It also increases the directional PCF filter from five to nine samples without widening its radius; the island ground retains its slightly softer filter. No extra shadow maps or render passes are added. Close and wide Palm Cove comparisons in Chrome at 1440 × 900 on an M4 Max held 60 FPS with both filters, with no measurable GPU slowdown in those runs. `tests/sun-shadows.test.ts` checks grid stability and compatibility with Three's shader chunk.
+
+### Baked island lighting
+
+Palm Cove uses baked sky visibility and bounced sunlight across its terrain, shoreline scenery, mountain and jetty. Blender Cycles computes three diffuse light bounces for 441 fixed meshes. Scenery blends at 75% strength with the ambient fill to preserve the bright art style; the ground uses 100% strength for stronger contrast around rocks and foliage. Live sunlight and shadows remain active; cars, boats, buoys, movable crates/barrels and mooring lines are excluded from the bake.
+
+Lighting is enabled during normal play. With `?debug=1`, **Baked lighting: On/Off** compares it with the original lighting without moving the camera or resetting the race. Detailed scenery keeps vertex irradiance. The terrain uses a denoised 2048 × 2048 half-float EXR lightmap, with separate UVs covering 170 × 145 metres (roughly 8 cm per texel). This avoids interpolating its lighting across 1.25 m terrain triangles. The 440 scenery meshes use a 2.42 MB JSON asset, plus a 3.71 MB terrain texture; together approximately 4.47 MB with gzip. The lightmap adds about 43 MiB of GPU texture memory including mipmaps, with no extra render passes. Each palm instance has its own lighting attribute; compatible materials are shared. If the bake cannot load, or its geometry/placement signatures no longer match the scenery, the game falls back to the original lighting.
+
+On an Apple M4 Max in Chrome at 1440 × 900, a same-camera mountain close-up comparison held 60 FPS with both terrain bakes. Average GPU render time was approximately 1.92 ms with the old vertex terrain and 1.99 ms with the texture lightmap, across two runs of each. A wide island view also held 60 FPS; all baked lighting on/off measured about 2.22/1.82 ms GPU time. These are desktop measurements, not a mobile-device benchmark.
+
+Rebake after changing the island scenery, terrain, models or sun lighting:
+
+1. Run `npm run dev`, open the game, and run this in the browser console:
+
+   ```js
+   await (
+     await import('/scripts/export-island-lighting.ts')
+   ).downloadIslandLighting();
+   ```
+
+2. Put the downloaded `island-lighting-scene.json` in `work/`.
+3. Run Blender with `--background --python scripts/bake-island-lighting.py`. This writes `public/lighting/island.json` and `public/lighting/island-ground.exr`. Scenery uses 128 samples; terrain uses 256 samples followed by compositor denoising. Add `-- --terrain-only` to regenerate just the terrain texture while preserving an existing scenery bake. Use a full rebake after changing geometry, placement or lighting. No Blender process is needed during gameplay.
+4. Run `node --experimental-strip-types --test tests/island-lighting.test.ts` to check bake coverage, signatures, lightmap dimensions/HDR values and terrain UV coverage against the current assets and placements.
+
 Palm cove’s mountain is authored in Blender: `assets/palm-cove-mountain.blend`, exported as `public/models/mountain-palm-cove.glb`. It uses faceted rock slabs with shallow surface weathering and carved recesses in the largest rock, a vertical color gradient from cool slate at the base to pale limestone at the summit, and clusters of smaller broken rocks around its foot. Ground fragments are seated using the game’s terrain height and kept clear of the beach lane. A tilted roof slab and leaning sea stack form the driving passage. The visible low-poly surfaces also supply collision. Buried feet and scattered talus meet the island’s earth mounds and mottled stone-to-grass transition. Rebuild the asset with Blender’s `--background --python scripts/build-palm-mountain.py`.
 
 Papaya City follows curving avenues through a mountain valley, with T junctions, linked gardens, level building sites, and uphill streets spanning roughly 20 metres of elevation. It has an eight-checkpoint circuit, shops and apartments, pitched-roof terraces, offices, a clock-tower town hall, a fountain park, and a market square. Crosswalks, awnings, signs, balconies, rooftop equipment, lamps, traffic signals, hydrants, benches, trees, and parked cars give the blocks detail. The Blender source is `assets/papaya-city.blend`; rebuild `public/models/city-papaya.glb` with `scripts/build-papaya-city.py`. Meshes are batched by material. Solid buildings, curbs, and street furniture have collision; road paint and facade decoration are visual details. Asphalt, raised sidewalks, and curb faces are Blender meshes, joined across intersections and matched to the terrain. Crosswalks are limited to seven civic and main-road junctions. Parked cars keep a rigid shape while following street direction and slope. `scripts/build-city-streets.ts` builds the street polygons during the Blender export. The street route and ground are in `app/city-map.ts`; `app/city-layout.ts` supplies the shared layout and elevation data used by the game and Blender exporter. Fly mode can inspect the city and drop the car onto its streets or rooftops.

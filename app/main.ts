@@ -9,6 +9,7 @@ import {
 
 let activeMap: MapId = 'ridge';
 let latestStatus: GameStatus | undefined;
+const debug = new URLSearchParams(location.search).get('debug') === '1';
 const touchScreen = matchMedia('(pointer: coarse), (max-width: 700px)');
 
 const ui = {
@@ -56,12 +57,13 @@ const ui = {
   mapMenu: document.querySelector<HTMLDialogElement>('#map-menu')!,
   trailName: document.getElementById('trail-name')!,
   fly: document.querySelector<HTMLButtonElement>('#fly')!,
+  bakedLighting: document.querySelector<HTMLButtonElement>('#baked-lighting')!,
   flyLabel: document.getElementById('fly-label')!,
   flyHeight: document.getElementById('fly-height')!,
   dashboard: document.querySelector<HTMLElement>('.dashboard')!,
 };
 
-ui.fly.hidden = new URLSearchParams(location.search).get('debug') !== '1';
+ui.fly.hidden = !debug;
 
 let resultShownId: string | undefined;
 let renderedLeaderboard: RaceState['leaderboard'] | undefined;
@@ -166,6 +168,16 @@ function updateStatus(status: GameStatus) {
           : `3 laps to finish. ${map.hint}`,
   );
   ui.fly.disabled = !status.ready || race.finished;
+  ui.bakedLighting.hidden = !debug || status.bakedLighting === null;
+  ui.bakedLighting.disabled = !status.ready;
+  ui.bakedLighting.setAttribute(
+    'aria-pressed',
+    String(status.bakedLighting === true),
+  );
+  setText(
+    ui.bakedLighting,
+    `Baked lighting: ${status.bakedLighting ? 'On' : 'Off'}`,
+  );
   ui.pause.toggleAttribute('disabled', !status.ready || race.finished);
   ui.scores.disabled = !status.ready;
   ui.fly.setAttribute('aria-pressed', String(status.flying));
@@ -340,6 +352,14 @@ ui.raceAgain.addEventListener(
 );
 ui.pause.addEventListener('click', () => game.togglePause(), options);
 ui.sound.addEventListener('click', () => game.toggleMute(), options);
+ui.bakedLighting.addEventListener(
+  'click',
+  () => {
+    game.toggleBakedLighting();
+    ui.viewport.querySelector('canvas')?.focus();
+  },
+  options,
+);
 ui.fly.addEventListener(
   'click',
   () => {

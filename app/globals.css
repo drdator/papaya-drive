@@ -822,7 +822,8 @@ button {
 .view-controls .map-button {
   margin-right: 0;
 }
-#fly[aria-pressed='true'] {
+#fly[aria-pressed='true'],
+#baked-lighting[aria-pressed='true'] {
   background: #d4e6c2;
   border-color: #9fbe87;
 }
@@ -854,6 +855,10 @@ button {
   }
   .view-controls .map-button {
     padding-inline: 8px;
+  }
+  .game:has(#baked-lighting:not([hidden])) .hint,
+  .game:has(#baked-lighting:not([hidden])) .lap-split {
+    top: 270px;
   }
   .hint {
     top: 215px;

@@ -38,6 +38,8 @@ import {
 } from './ridge-river';
 import { createCityGround } from './city-map';
 import { createTropicalScenery } from './tropical-scenery';
+import { loadIslandLighting } from './island-lighting';
+import { createSunShadowTracking, sunShadowFragment } from './sun-shadows';
 import {
   createRace,
   raceStorage,
@@ -57,6 +59,7 @@ export type GameStatus = {
   muted: boolean;
   flooded: boolean;
   flying: boolean;
+  bakedLighting: boolean | null;
 };
 export type GameControls = {
   dispose(): void;
@@ -64,6 +67,7 @@ export type GameControls = {
   togglePause(): void;
   toggleMute(): void;
   toggleFly(): void;
+  toggleBakedLighting(): void;
   setKey(key: string, down: boolean): void;
 };
 const gateCount = checkpointsPerLap;
@@ -83,6 +87,10 @@ export function createGame(
     tropical,
   } = map.terrain;
   const race = createRace(mapId, raceStorage());
+  const lightingAbort = new AbortController();
+  let islandLighting:
+    | Awaited<ReturnType<typeof loadIslandLighting>>
+    | undefined;
   const status: GameStatus = {
     ready: false,
     speed: 0,
@@ -95,6 +103,7 @@ export function createGame(
     muted: false,
     flooded: false,
     flying: false,
+    bakedLighting: null,
   };
   const scene = new THREE.Scene();
   const sky = tropical ? '#94d7ee' : city ? '#c4dbe0' : '#bccfd1';
@@ -129,12 +138,14 @@ export function createGame(
       togglePause() {},
       toggleMute() {},
       toggleFly() {},
+      toggleBakedLighting() {},
       setKey() {},
     };
   }
   renderer.setPixelRatio(Math.min(devicePixelRatio, 1.8));
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFShadowMap;
+  THREE.ShaderChunk.shadowmap_pars_fragment = sunShadowFragment;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = tropical ? 1.1 : city ? 1.05 : 1.25;
   const drivingDescription = `3D ${map.name} driving playground. Use W or Up to accelerate, S or Down to brake and reverse, A/D or Left/Right to steer, Space for the handbrake, R to reset, and Escape to pause.`;
@@ -156,6 +167,7 @@ export function createGame(
   });
   sun.shadow.normalBias = 0.025;
   sun.shadow.bias = -0.00015;
+  const trackSunShadow = createSunShadowTracking(sun);
   scene.add(sun, sun.target);
 
   const waterTime = new THREE.Uniform(0);
@@ -817,6 +829,24 @@ export function createGame(
         cameraCollision.add(scenery.group);
         scenery.solids.forEach((mesh) => physics!.addSolid(mesh));
         scenery.trunks.forEach((trunk) => physics!.addObstacle(trunk));
+        try {
+          islandLighting = await loadIslandLighting(
+            ground,
+            scenery.group,
+            mountain,
+            models[assetNames.indexOf(map.props!)],
+            lightingAbort.signal,
+          );
+          status.bakedLighting = true;
+          islandLighting.setEnabled(true);
+        } catch (error) {
+          if (!disposed)
+            console.warn(
+              'Using original island lighting because the bake could not load',
+              error,
+            );
+        }
+        if (disposed) return;
       } else if (!city)
         for (let i = 0; i < 440; i++) {
           const spread = i < 255 ? 145 : 235;
@@ -1154,13 +1184,7 @@ export function createGame(
       cameraCollision?.move(cameraOrigin, camera.position, false);
       camera.lookAt(cameraLook);
     }
-    const lightTarget = status.flying ? camera.position : car.position;
-    sun.position.set(
-      lightTarget.x - 50,
-      lightTarget.y + 84,
-      lightTarget.z + 36,
-    );
-    sun.target.position.copy(lightTarget);
+    trackSunShadow(status.flying ? camera.position : car.position);
     gatePad.material.opacity = 0.22 + Math.sin(time * 0.003) * 0.07;
     renderer.render(scene, camera);
     hudTime += dt;
@@ -1176,9 +1200,17 @@ export function createGame(
     togglePause,
     toggleMute,
     toggleFly,
+    toggleBakedLighting() {
+      if (!islandLighting) return;
+      status.bakedLighting = !status.bakedLighting;
+      islandLighting.setEnabled(status.bakedLighting);
+      onStatus({ ...status });
+    },
     setKey,
     dispose() {
       disposed = true;
+      lightingAbort.abort();
+      islandLighting?.dispose();
       audio.dispose();
       physics?.dispose();
       cameraCollision?.dispose();
