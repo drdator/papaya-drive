@@ -1,0 +1,12 @@
+{
+  "name": "Papaya Drive",
+  "short_name": "Papaya Drive",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#d9e5db",
+  "theme_color": "#254d40",
+  "icons": [
+    { "src": "favicon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

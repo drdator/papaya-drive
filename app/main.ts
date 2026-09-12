@@ -57,6 +57,11 @@ const ui = {
   pauseIcon: document.querySelector<SVGUseElement>('#pause-icon')!,
   maps: document.querySelector<HTMLButtonElement>('#maps')!,
   mapMenu: document.querySelector<HTMLDialogElement>('#map-menu')!,
+  fullscreen: document.querySelector<HTMLButtonElement>('#fullscreen')!,
+  fullscreenIcon: document.querySelector<SVGUseElement>('#fullscreen-icon')!,
+  fullscreenMenu:
+    document.querySelector<HTMLDialogElement>('#fullscreen-menu')!,
+  fullscreenDescription: document.getElementById('fullscreen-description')!,
   trailName: document.getElementById('trail-name')!,
   fly: document.querySelector<HTMLButtonElement>('#fly')!,
   bakedLighting: document.querySelector<HTMLButtonElement>('#baked-lighting')!,
@@ -324,6 +329,70 @@ function updateStatus(status: GameStatus) {
 let game = createGame(ui.viewport, updateStatus, activeMap);
 const events = new AbortController();
 const options = { signal: events.signal };
+const standalone = matchMedia('(display-mode: standalone)');
+let resumeAfterFullscreenMenu = false;
+
+function updateFullscreen() {
+  const active = Boolean(document.fullscreenElement);
+  const label = active ? 'Exit fullscreen' : 'Enter fullscreen';
+  ui.fullscreen.hidden = standalone.matches && !document.fullscreenEnabled;
+  ui.fullscreen.setAttribute('aria-label', label);
+  ui.fullscreen.setAttribute('aria-pressed', String(active));
+  ui.fullscreen.title = label;
+  ui.fullscreenIcon.setAttribute(
+    'href',
+    active ? '#icon-exit-fullscreen' : '#icon-fullscreen',
+  );
+}
+
+function showFullscreenHelp(message: string) {
+  setText(ui.fullscreenDescription, message);
+  resumeAfterFullscreenMenu =
+    latestStatus?.ready === true && !latestStatus.paused;
+  if (resumeAfterFullscreenMenu) game.togglePause();
+  ui.fullscreenMenu.showModal();
+}
+
+ui.fullscreen.addEventListener(
+  'click',
+  async () => {
+    if (!document.fullscreenEnabled) {
+      const appleMobile =
+        /iPhone|iPad|iPod/.test(navigator.userAgent) ||
+        (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      showFullscreenHelp(
+        appleMobile
+          ? 'In Safari, tap Share, then Add to Home Screen. Keep Open as Web App enabled if shown, then launch Papaya Drive from your Home Screen to play without the browser bars.'
+          : 'This browser doesn’t support fullscreen for the game. Try opening it in another browser.',
+      );
+      return;
+    }
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      // Include the menus, which live alongside the game in the document.
+      else await document.documentElement.requestFullscreen();
+      ui.viewport.querySelector('canvas')?.focus({ preventScroll: true });
+    } catch {
+      showFullscreenHelp(
+        'The browser couldn’t switch fullscreen. Close this message and try again.',
+      );
+    }
+  },
+  options,
+);
+document.addEventListener('fullscreenchange', updateFullscreen, options);
+standalone.addEventListener('change', updateFullscreen, options);
+ui.fullscreenMenu.addEventListener(
+  'close',
+  () => {
+    if (resumeAfterFullscreenMenu && latestStatus?.paused) game.togglePause();
+    resumeAfterFullscreenMenu = false;
+    ui.viewport.querySelector('canvas')?.focus({ preventScroll: true });
+  },
+  options,
+);
+updateFullscreen();
+
 ui.retry.addEventListener('click', () => location.reload(), options);
 ui.repair.addEventListener('click', () => game.reset(), options);
 ui.reset.addEventListener('click', () => game.reset(), options);

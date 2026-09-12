@@ -2,7 +2,18 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+    />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Papaya Drive" />
+    <meta
+      name="apple-mobile-web-app-status-bar-style"
+      content="black-translucent"
+    />
+    <meta name="theme-color" content="#254d40" />
+    <link rel="manifest" href="%BASE_URL%manifest.webmanifest" />
     <meta
       name="description"
       content="Take a low-poly hatchback through mountain valleys or a tropical island. Race three laps, follow the golden checkpoints, and beat your best time."
@@ -30,6 +41,12 @@
         </symbol>
         <symbol id="icon-fly" viewBox="0 0 24 24">
           <path d="m3 10 18-7-7 18-3-8Zm8 3L21 3" />
+        </symbol>
+        <symbol id="icon-fullscreen" viewBox="0 0 24 24">
+          <path d="M9 3H3v6m12-6h6v6M3 15v6h6m12-6v6h-6" />
+        </symbol>
+        <symbol id="icon-exit-fullscreen" viewBox="0 0 24 24">
+          <path d="M3 9h6V3m12 6h-6V3M9 21v-6H3m12 6v-6h6" />
         </symbol>
         <symbol id="icon-leaderboard" viewBox="0 0 24 24">
           <path d="M3 20V10h6m0 10V4h6v16m0-7h6v7ZM3 20h18" />
@@ -87,6 +104,17 @@
                 <use href="#icon-leaderboard" />
               </svg>
               Leaderboard
+            </button>
+            <button
+              id="fullscreen"
+              class="map-button fullscreen-button"
+              aria-label="Enter fullscreen"
+              aria-pressed="false"
+              title="Enter fullscreen"
+            >
+              <svg class="icon" aria-hidden="true">
+                <use id="fullscreen-icon" href="#icon-fullscreen" />
+              </svg>
             </button>
             <button
               id="fly"
@@ -361,6 +389,18 @@
       <p id="scores-note" class="scores-note">
         Saved in this browser, separately for each track.
       </p>
+    </dialog>
+    <dialog
+      id="fullscreen-menu"
+      class="map-menu"
+      aria-labelledby="fullscreen-title"
+      aria-describedby="fullscreen-description"
+    >
+      <h1 id="fullscreen-title">Play fullscreen</h1>
+      <p id="fullscreen-description"></p>
+      <form method="dialog">
+        <button class="map-close">Back to driving</button>
+      </form>
     </dialog>
     <script type="module" src="/app/main.ts"></script>
   </body>

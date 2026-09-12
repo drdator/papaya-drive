@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { renderPixelRatio } from './render-resolution';
 import {
   initializeVehiclePhysics,
   createVehiclePhysics,
@@ -38,10 +39,13 @@ import {
 } from './ridge-river';
 import { createCityGround } from './city-map';
 import { createTropicalScenery } from './tropical-scenery';
+import { createBeachCrabs } from './beach-crabs';
 import { loadBakedLighting, lightingMeshes } from './baked-lighting';
 import { createRidgeScenery } from './ridge-scenery';
 import { createSunShadowTracking, sunShadowFragment } from './sun-shadows';
 import { createCascadedSun } from './cascaded-sun';
+import { batchStaticScenery } from './static-scenery';
+import { createStaticShadowBatches } from './static-shadow-batches';
 import {
   createRace,
   raceStorage,
@@ -88,6 +92,9 @@ export function createGame(
   const race = createRace(mapId, raceStorage());
   const lightingAbort = new AbortController();
   let bakedLighting: Awaited<ReturnType<typeof loadBakedLighting>> | undefined;
+  let staticScenery: ReturnType<typeof batchStaticScenery> | undefined;
+  let staticShadows: ReturnType<typeof createStaticShadowBatches> | undefined;
+  let beachCrabs: ReturnType<typeof createBeachCrabs> | undefined;
   const status: GameStatus = {
     ready: false,
     loading: map.loading,
@@ -141,7 +148,6 @@ export function createGame(
       setKey() {},
     };
   }
-  renderer.setPixelRatio(Math.min(devicePixelRatio, 1.8));
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFShadowMap;
   THREE.ShaderChunk.shadowmap_pars_fragment = sunShadowFragment;
@@ -151,6 +157,18 @@ export function createGame(
   renderer.domElement.setAttribute('aria-label', drivingDescription);
   renderer.domElement.tabIndex = 0;
   container.appendChild(renderer.domElement);
+  const performanceStats =
+    new URLSearchParams(location.search).get('stats') === '1'
+      ? document.createElement('output')
+      : undefined;
+  if (performanceStats) {
+    performanceStats.className = 'performance-stats';
+    performanceStats.hidden = true;
+    container.appendChild(performanceStats);
+  }
+  let statsStart = 0,
+    statsFrames = 0,
+    statsCpu = 0;
   scene.add(new THREE.HemisphereLight('#f6f2db', '#6f8263', 2.4));
   const sun = new THREE.DirectionalLight('#fff0ce', 3.1);
   sun.position.set(-50, 84, 36);
@@ -167,11 +185,43 @@ export function createGame(
   sun.shadow.normalBias = 0.025;
   sun.shadow.bias = -0.00015;
   const trackSunShadow = createSunShadowTracking(sun);
+  const shadowBuffers = new URLSearchParams(location.search).get(
+    'shadowBuffers',
+  );
+  const compactShadowBuffers =
+    shadowBuffers === 'compact' ||
+    (shadowBuffers !== 'standard' && matchMedia('(pointer: coarse)').matches);
   const cascadedSun =
     new URLSearchParams(location.search).get('shadows') === 'single'
       ? undefined
-      : createCascadedSun(scene, camera, sun);
+      : createCascadedSun(scene, camera, sun, {
+          compactBuffers: compactShadowBuffers,
+          farShadowMapSize:
+            new URLSearchParams(location.search).get('distantShadows') ===
+            '2048'
+              ? 2048
+              : 4096,
+        });
   if (!cascadedSun) scene.add(sun, sun.target);
+  if (cascadedSun && compactShadowBuffers) {
+    const shadowTargets = new Set<THREE.RenderTarget>();
+    for (const light of scene.children) {
+      if (light instanceof THREE.DirectionalLight && light.shadow.map) {
+        shadowTargets.add(light.shadow.map);
+      }
+    }
+    const clear = renderer.clear.bind(renderer);
+    renderer.clear = (color = true, depth = true, stencil = true) => {
+      const target = renderer.getRenderTarget();
+      // Shadow depth is always cleared normally. Its unused color is neither
+      // sampled nor written; avoid clearing it on every cascade as well.
+      clear(
+        color && (target === null || !shadowTargets.has(target)),
+        depth,
+        stencil,
+      );
+    };
+  }
 
   const waterTime = new THREE.Uniform(0);
   const boatWaterMask = createBoatWaterMask();
@@ -218,6 +268,7 @@ export function createGame(
   const postGeometry = new THREE.CylinderGeometry(0.065, 0.08, 0.65, 5);
   const postMaterial = new THREE.MeshStandardMaterial({ color: '#f8eed6' });
   const postCount = city ? 0 : Math.ceil(routeLength / 5);
+  const routePosts: THREE.Mesh[] = [];
   for (let i = 0; i < postCount; i++) {
     const progress = i / postCount;
     const p = route(progress);
@@ -236,6 +287,7 @@ export function createGame(
       post.position.set(x, terrainHeight(x, z) + 0.325, z);
       post.castShadow = true;
       scene.add(post);
+      routePosts.push(post);
     }
   }
 
@@ -667,14 +719,33 @@ export function createGame(
   window.addEventListener('keyup', keyUp);
   window.addEventListener('blur', blur);
   document.addEventListener('visibilitychange', visibility);
-  const resize = new ResizeObserver(() => {
+  const visualViewport = window.visualViewport;
+  let viewportWidth = 0;
+  let viewportHeight = 0;
+  function resizeViewport() {
     const { width, height } = container.getBoundingClientRect();
-    renderer.setSize(width, height);
-    camera.aspect = width / Math.max(height, 1);
-    camera.updateProjectionMatrix();
-    cascadedSun?.updateFrustums();
-  });
+    if (width <= 0 || height <= 0) return;
+    const pixelRatio = renderPixelRatio(
+      devicePixelRatio,
+      visualViewport?.scale,
+    );
+    const sizeChanged = width !== viewportWidth || height !== viewportHeight;
+    if (!sizeChanged && pixelRatio === renderer.getPixelRatio()) return;
+    // Update dimensions and density together; CSS keeps the canvas filling its container.
+    renderer.setDrawingBufferSize(width, height, pixelRatio);
+    viewportWidth = width;
+    viewportHeight = height;
+    if (sizeChanged) {
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+      cascadedSun?.updateFrustums();
+    }
+  }
+  const resize = new ResizeObserver(resizeViewport);
   resize.observe(container);
+  window.addEventListener('resize', resizeViewport);
+  visualViewport?.addEventListener('resize', resizeViewport);
+  resizeViewport();
 
   const loader = new GLTFLoader();
   const assetNames = [
@@ -683,11 +754,13 @@ export function createGame(
     ...(city ? [] : ['rock-boulder', 'rock-flat', 'rock-crag']),
     ...(map.mountain ? [map.mountain] : []),
     ...(map.props ? [map.props] : []),
+    ...(tropical ? ['crab'] : []),
   ];
   const loaded: THREE.Object3D[] = [];
   function release(object: THREE.Object3D) {
     object.traverse((child) => {
       if (child instanceof THREE.Mesh) {
+        if (child instanceof THREE.SkinnedMesh) child.skeleton.dispose();
         child.geometry.dispose();
         for (const material of Array.isArray(child.material)
           ? child.material
@@ -707,6 +780,7 @@ export function createGame(
         return gltf.scene;
       }
       loaded.push(gltf.scene);
+      gltf.scene.animations = gltf.animations;
       gltf.scene.traverse((child) => {
         if (child instanceof THREE.Mesh) {
           child.castShadow = !child.name.startsWith('Road_paint');
@@ -836,6 +910,29 @@ export function createGame(
         cameraCollision.add(scenery.group);
         scenery.solids.forEach((mesh) => physics!.addSolid(mesh));
         scenery.trunks.forEach((trunk) => physics!.addObstacle(trunk));
+        beachCrabs = createBeachCrabs(
+          models[assetNames.indexOf('crab')],
+          ground.geometry,
+          [
+            ...scenery.solids.map((mesh) =>
+              new THREE.Box3().setFromObject(mesh),
+            ),
+            ...models[assetNames.indexOf(map.props!)].children.map((prop) =>
+              new THREE.Box3().setFromObject(prop),
+            ),
+            ...scenery.trunks.map((trunk) =>
+              new THREE.Box3(
+                new THREE.Vector3(
+                  trunk.x - trunk.radius, trunk.bottom, trunk.z - trunk.radius,
+                ),
+                new THREE.Vector3(
+                  trunk.x + trunk.radius, trunk.top, trunk.z + trunk.radius,
+                ),
+              ),
+            ),
+          ],
+        );
+        scene.add(beachCrabs.group);
         bakeMeshes = lightingMeshes(ground, {
           scenery: scenery.group,
           mountain,
@@ -876,6 +973,27 @@ export function createGame(
       physics.settleFloatingProps();
       cameraCollision.update();
       cameraCollision.build();
+      if (new URLSearchParams(location.search).get('batching') !== 'off') {
+        staticScenery = batchStaticScenery(scene, [
+          ...routePosts,
+          ...[...(bakeMeshes?.values() ?? [])].filter(
+            (mesh) => mesh !== ground,
+          ),
+        ]);
+        const shadowBatching = new URLSearchParams(location.search).get(
+          'shadowBatching',
+        );
+        if (
+          shadowBatching === 'on' ||
+          (shadowBatching !== 'off' && matchMedia('(pointer: coarse)').matches)
+        ) {
+          staticShadows = createStaticShadowBatches(
+            scene,
+            renderer.shadowMap,
+            staticScenery.meshes,
+          );
+        }
+      }
       status.loading = 'Almost ready…';
       reset();
       assetsReady = true;
@@ -1056,6 +1174,7 @@ export function createGame(
     if (disposed) return;
     frame = requestAnimationFrame(animate);
     if (!assetsReady) return;
+    const cpuStart = performanceStats ? performance.now() : 0;
     const dt = previousTime ? Math.min((time - previousTime) / 1000, 0.1) : 0;
     previousTime = time;
     if (!status.paused && !race.state.finished) {
@@ -1080,6 +1199,11 @@ export function createGame(
     physics?.renderFloatingProps(alpha);
     if (!status.paused && floatingBoats) cameraCollision?.update();
     renderCar(alpha);
+    beachCrabs?.update(
+      waterTime.value,
+      status.flying ? undefined : car.position,
+      motion,
+    );
     const splashStrength = waterEffects.update(
       driving ? dt : 0,
       car,
@@ -1184,6 +1308,22 @@ export function createGame(
     } else trackSunShadow(status.flying ? camera.position : car.position);
     gatePad.material.opacity = 0.22 + Math.sin(time * 0.003) * 0.07;
     renderer.render(scene, camera);
+    if (performanceStats) {
+      const elapsed = time - statsStart;
+      if (!statsStart || elapsed > 1500) {
+        statsStart = time;
+        statsFrames = statsCpu = 0;
+      } else {
+        statsFrames++;
+        statsCpu += performance.now() - cpuStart;
+        if (elapsed >= 500) {
+          performanceStats.hidden = false;
+          performanceStats.textContent = `${Math.round((statsFrames * 1000) / elapsed)} FPS · ${(elapsed / statsFrames).toFixed(1)} ms/frame · CPU ${(statsCpu / statsFrames).toFixed(1)} ms · ${renderer.info.render.calls} draws`;
+          statsStart = time;
+          statsFrames = statsCpu = 0;
+        }
+      }
+    }
     // Keep the loading cover through shader compilation and texture uploads.
     if (!status.ready) {
       status.ready = true;
@@ -1214,14 +1354,19 @@ export function createGame(
     dispose() {
       disposed = true;
       lightingAbort.abort();
+      beachCrabs?.dispose();
+      staticShadows?.dispose();
       cascadedSun?.dispose();
       bakedLighting?.dispose();
+      staticScenery?.dispose();
       audio.dispose();
       physics?.dispose();
       cameraCollision?.dispose();
       crashVisuals?.dispose();
       cancelAnimationFrame(frame);
       resize.disconnect();
+      window.removeEventListener('resize', resizeViewport);
+      visualViewport?.removeEventListener('resize', resizeViewport);
       stopOrbit();
       canvas.removeEventListener('pointerdown', startOrbit);
       canvas.removeEventListener('pointermove', moveOrbit);
@@ -1237,6 +1382,7 @@ export function createGame(
       loaded.forEach(release);
       renderer.dispose();
       renderer.domElement.remove();
+      performanceStats?.remove();
     },
   };
 }
